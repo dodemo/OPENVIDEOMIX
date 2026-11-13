@@ -1,0 +1,32 @@
+name: Solicitude de Función (Feature Request)
+description: Propor unha nova característica ou módulo para OPENVIDEOMIX
+title: "[FEAT]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazas por propor unha mellora para OPENVIDEOMIX.
+  - type: textarea
+    id: goal
+    attributes:
+      label: 🎯 Obxectivo da función
+      description: Que problema resolve ou que capacidade engade ao realizador?
+      placeholder: "Exemplo: Engadir captura de cámara web USB en tempo real mediante V4L2..."
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: 📋 Especificación Técnica
+      description: Módulos afectados (core, desktop), dependencias en Rust e comportamento.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: ✅ Criterios de Aceptación
+      description: Como sabemos que a función está rematada e lista para produción?
+      placeholder: "- [ ] Compila con cargo check\n- [ ] Móstrase a previsualización en directo a 50 FPS"
+    validations:
+      required: true
