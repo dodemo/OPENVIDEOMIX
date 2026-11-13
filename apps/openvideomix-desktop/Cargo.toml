@@ -1,0 +1,20 @@
+[package]
+name = "openvideomix-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "openvideomix"
+path = "src/main.rs"
+
+[dependencies]
+openvideomix-core.workspace = true
+openvideomix-ai.workspace = true
+eframe.workspace = true
+egui.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono.workspace = true
