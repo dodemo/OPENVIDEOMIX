@@ -16,7 +16,7 @@ pub enum InputKind {
     ScreenCapture { display_id: u32 },
     NetworkStream { url: String, protocol: String },
     MediaFile { path: String },
-    TitleOverlay { title: String, subtitle: String },
+    ImageFile { path: String },
     ColorBars,
     AudioOnly,
 }
@@ -48,7 +48,7 @@ impl VideoInput {
             kind,
             width: 1920,
             height: 1080,
-            fps: 60,
+            fps: 50,
             is_online: true,
             volume: 0.85,
             is_muted: false,
@@ -98,24 +98,36 @@ impl AudioBus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSettings {
     pub output_resolution: String, // e.g. "1920x1080"
-    pub frame_rate: String,        // e.g. "59.94p"
+    pub frame_rate: String,        // e.g. "50.00 fps"
     pub audio_device: String,
     pub audio_sample_rate: u32,
-    pub pcgrande_endpoint: String,
-    pub pcgrande_model: String,
-    pub openai_api_key: String,
+}
+
+impl ProjectSettings {
+    pub fn target_fps_value(&self) -> f64 {
+        if self.frame_rate.contains("50.00") {
+            50.0
+        } else if self.frame_rate.contains("59.94") {
+            59.94
+        } else if self.frame_rate.contains("60.00") {
+            60.0
+        } else if self.frame_rate.contains("25.00") {
+            25.0
+        } else if self.frame_rate.contains("30.00") {
+            30.0
+        } else {
+            50.0
+        }
+    }
 }
 
 impl Default for ProjectSettings {
     fn default() -> Self {
         Self {
             output_resolution: "1920x1080 (Full HD)".into(),
-            frame_rate: "59.94 fps".into(),
+            frame_rate: "50.00 fps (PAL Broadcast 50Hz)".into(),
             audio_device: "SN6140 Analog / PipeWire".into(),
             audio_sample_rate: 48000,
-            pcgrande_endpoint: "http://192.168.0.100:11434".into(),
-            pcgrande_model: "qwen2.5-coder:32b".into(),
-            openai_api_key: "".into(),
         }
     }
 }
@@ -152,21 +164,17 @@ impl Default for MixerState {
             VideoInput::new(2, "CAM 2 - Plano Xeral (USB/V4L2)", InputKind::Camera { device_path: "/dev/video2".into() }),
             VideoInput::new(3, "CAPTURA - Escritorio / Pantalla", InputKind::ScreenCapture { display_id: 0 }),
             VideoInput::new(4, "VÍDEO - Clip Promocional", InputKind::MediaFile { path: "assets/intro.mp4".into() }),
-            VideoInput::new(5, "RÓTULO - Lower Third (PNG)", InputKind::TitleOverlay {
-                title: "PROGRAMA EN DIRECTO".into(),
-                subtitle: "OPENVIDEOMIX Studio • vMix Alternativa Aberta".into(),
-            }),
-            VideoInput::new(6, "BARRAS - SMPTE 60fps Test", InputKind::ColorBars),
+            VideoInput::new(5, "BARRAS - SMPTE 50p Test", InputKind::ColorBars),
         ];
 
         // Program initial: CAM 1, Preview initial: BARRAS
         inputs[0].is_tally_program = true;
-        inputs[5].is_tally_preview = true;
+        inputs[4].is_tally_preview = true;
 
         Self {
             program_input: Some(1),
-            preview_input: Some(6),
-            active_overlay_1: Some(5), // Rótulo dispoñible para Overlay 1
+            preview_input: Some(5),
+            active_overlay_1: None,
             overlay_opacity: 1.0,
             active_transition: TransitionType::Fade,
             transition_duration_ms: 500,
@@ -179,8 +187,8 @@ impl Default for MixerState {
             is_streaming: false,
             is_recording: false,
             is_external_out: false,
-            fps: 59.94,
-            cpu_usage_pct: 3.2,
+            fps: 50.0,
+            cpu_usage_pct: 2.8,
             dropped_frames: 0,
             settings: ProjectSettings::default(),
             started_at: Utc::now(),

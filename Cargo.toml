@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "crates/core",
-    "crates/ai-assistant",
     "apps/openvideomix-desktop"
 ]
 
@@ -15,7 +14,6 @@ repository = "https://github.com/dodemo/OPENVIDEOMIX"
 
 [workspace.dependencies]
 openvideomix-core = { path = "crates/core" }
-openvideomix-ai = { path = "crates/ai-assistant" }
 
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
@@ -23,8 +21,10 @@ serde_json = "1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 thiserror = "2"
+anyhow = "1"
 egui = "0.31"
 eframe = { version = "0.31", default-features = true }
+image = { version = "0.25", default-features = true }
 chrono = { version = "0.4", features = ["serde"] }
 parking_lot = "0.12"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

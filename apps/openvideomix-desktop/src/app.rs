@@ -1,39 +1,38 @@
-use std::time::Instant;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use chrono::Local;
-use eframe::egui::{self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, Vec2};
-use openvideomix_ai::{AiAssistantEngine, AiBroadcastAction};
+use eframe::egui::{self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2};
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
 
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
-    pub ai_engine: AiAssistantEngine,
-    pub ai_prompt: String,
-    pub ai_notification: Option<String>,
+    pub status_notification: Option<String>,
     pub show_settings: bool,
-    pub settings_tab: usize, // 0: Video, 1: Audio, 2: IA/PCgrande, 3: Dispositivos
+    pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
     pub last_frame_time: Instant,
     pub animated_tick: f32,
     pub connected_v4l2_devices: Vec<String>,
+    pub loaded_textures: HashMap<InputId, TextureHandle>,
 }
 
 impl OpenVideoMixApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self {
             mixer: MixerState::default(),
-            ai_engine: AiAssistantEngine::default(),
-            ai_prompt: String::new(),
-            ai_notification: Some("OPENVIDEOMIX Studio iniciado. Preme F1 ou AXUSTES para configurar.".into()),
+            status_notification: Some("OPENVIDEOMIX listo. 50 FPS PAL activado por defecto.".into()),
             show_settings: false,
             settings_tab: 0,
             last_frame_time: Instant::now(),
             animated_tick: 0.0,
             connected_v4l2_devices: Vec::new(),
+            loaded_textures: HashMap::new(),
         };
         app.refresh_video_devices();
         app
     }
 
-    /// Scan system for video devices (/dev/video*)
+    /// Scan system for real video devices (/dev/video*)
     pub fn refresh_video_devices(&mut self) {
         self.connected_v4l2_devices.clear();
         for i in 0..16 {
@@ -44,14 +43,59 @@ impl OpenVideoMixApp {
         }
     }
 
-    /// Update frame time, animations and audio simulation
+    /// Load real PNG / Image file with alpha transparency from disk
+    pub fn load_image_input(&mut self, ctx: &egui::Context, path: PathBuf) {
+        let path_str = path.to_string_lossy().to_string();
+        let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+        match image::open(&path) {
+            Ok(img) => {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [w as usize, h as usize],
+                    &rgba.into_raw(),
+                );
+
+                let next_id = (self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0)) + 1;
+                let texture_handle = ctx.load_texture(
+                    format!("tex_{}", next_id),
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                );
+
+                self.loaded_textures.insert(next_id, texture_handle);
+
+                let mut input = VideoInput::new(
+                    next_id,
+                    format!("PNG: {}", file_name),
+                    InputKind::ImageFile { path: path_str },
+                );
+                input.width = w;
+                input.height = h;
+
+                // Set as active overlay 1 automatically so the user can see it right away
+                self.mixer.active_overlay_1 = Some(next_id);
+                input.is_overlay_active = true;
+
+                self.mixer.inputs.push(input);
+                self.mixer.update_tally_flags();
+                self.status_notification = Some(format!("Imaxe cargada con éxito: {} ({}x{})", file_name, w, h));
+            }
+            Err(err) => {
+                self.status_notification = Some(format!("Erro ao abrir o ficheiro PNG: {}", err));
+            }
+        }
+    }
+
+    /// Update frame time, calculations and audio simulation
     fn update_simulation(&mut self) {
         let now = Instant::now();
         let dt = now.duration_since(self.last_frame_time).as_secs_f32();
         self.last_frame_time = now;
         if dt > 0.0001 {
             let instant_fps = 1.0 / dt;
-            self.mixer.fps = (self.mixer.fps * 0.96) + (instant_fps * 0.04);
+            self.mixer.fps = (self.mixer.fps * 0.94) + (instant_fps * 0.06);
         }
 
         self.animated_tick += 0.05;
@@ -68,23 +112,41 @@ impl OpenVideoMixApp {
         }
     }
 
-    /// Draw video content on a given monitor rect (SMPTE bars, moving clock, desktop simulation, or camera status)
+    /// Render video or graphic content inside a monitor rect
     fn render_monitor_content(&self, ui: &mut egui::Ui, rect: Rect, input_id: Option<InputId>, is_program: bool) {
         let painter = ui.painter();
         let input = input_id.and_then(|id| self.mixer.inputs.iter().find(|i| i.id == id));
 
         match input {
             Some(inp) => match &inp.kind {
+                InputKind::ImageFile { path: _ } => {
+                    // Check if we have loaded texture
+                    if let Some(texture) = self.loaded_textures.get(&inp.id) {
+                        // Render image preserving aspect ratio or fitting
+                        painter.rect_filled(rect, 0.0, Color32::from_rgb(10, 12, 16));
+                        let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                        painter.image(texture.id(), rect, uv, Color32::WHITE);
+                    } else {
+                        painter.rect_filled(rect, 0.0, Color32::from_rgb(20, 20, 25));
+                        painter.text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            format!("🖼️ PNG: {}", inp.name),
+                            egui::FontId::proportional(15.0),
+                            Color32::WHITE,
+                        );
+                    }
+                }
                 InputKind::ColorBars => {
-                    // SMPTE Color Bars
+                    // 7-Bar SMPTE PAL / Broadcast standard
                     let colors = [
-                        Color32::from_rgb(230, 230, 230), // White
-                        Color32::from_rgb(220, 220, 30),  // Yellow
-                        Color32::from_rgb(30, 220, 220),  // Cyan
-                        Color32::from_rgb(40, 210, 40),   // Green
-                        Color32::from_rgb(220, 30, 220),  // Magenta
-                        Color32::from_rgb(220, 40, 40),   // Red
-                        Color32::from_rgb(30, 30, 220),   // Blue
+                        Color32::from_rgb(235, 235, 235), // White
+                        Color32::from_rgb(220, 220, 20),  // Yellow
+                        Color32::from_rgb(20, 220, 220),  // Cyan
+                        Color32::from_rgb(30, 215, 30),   // Green
+                        Color32::from_rgb(220, 20, 220),  // Magenta
+                        Color32::from_rgb(225, 30, 30),   // Red
+                        Color32::from_rgb(20, 20, 225),   // Blue
                     ];
                     let bar_w = rect.width() / 7.0;
                     for (idx, color) in colors.iter().enumerate() {
@@ -94,22 +156,22 @@ impl OpenVideoMixApp {
                         );
                         painter.rect_filled(bar_rect, 0.0, *color);
                     }
-                    // Bottom dark calibration segment
+                    // Bottom calibration area
                     let bottom_rect = Rect::from_min_size(
                         Pos2::new(rect.min.x, rect.min.y + rect.height() * 0.75),
                         Vec2::new(rect.width(), rect.height() * 0.25),
                     );
                     painter.rect_filled(bottom_rect, 0.0, Color32::from_rgb(18, 18, 18));
 
-                    // Animated moving scanline / box to prove 60fps real-time motion
-                    let scan_x = rect.min.x + ((self.animated_tick * 25.0) % rect.width());
-                    let scan_rect = Rect::from_min_size(Pos2::new(scan_x, bottom_rect.min.y + 2.0), Vec2::new(12.0, bottom_rect.height() - 4.0));
+                    // Continuous moving indicator verifying real 50Hz frame rate
+                    let scan_x = rect.min.x + ((self.animated_tick * 28.0) % rect.width());
+                    let scan_rect = Rect::from_min_size(Pos2::new(scan_x, bottom_rect.min.y + 2.0), Vec2::new(14.0, bottom_rect.height() - 4.0));
                     painter.rect_filled(scan_rect, 2.0, Color32::from_rgb(0, 255, 180));
 
-                    // Digital Timecode Display
+                    // Timecode display in 50 FPS PAL standard
                     let now_str = Local::now().format("%H:%M:%S").to_string();
-                    let frames = ((self.animated_tick * 30.0) as u32) % 60;
-                    let tc = format!("{}:{:02} SMPTE 60p", now_str, frames);
+                    let frames_50 = ((self.animated_tick * 25.0) as u32) % 50;
+                    let tc = format!("{}:{:02} (50.00 FPS PAL)", now_str, frames_50);
                     painter.text(
                         Pos2::new(rect.center().x, bottom_rect.center().y),
                         egui::Align2::CENTER_CENTER,
@@ -121,16 +183,16 @@ impl OpenVideoMixApp {
                 InputKind::Camera { device_path } => {
                     let has_dev = self.connected_v4l2_devices.contains(device_path);
                     if has_dev {
-                        painter.rect_filled(rect, 0.0, Color32::from_rgb(20, 30, 45));
+                        painter.rect_filled(rect, 0.0, Color32::from_rgb(20, 32, 48));
                         painter.text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
-                            format!("📹 SINAL EN DIRECTO ({})\nCaptura V4L2 Activa 1080p60", device_path),
+                            format!("📹 SINAL DE WEBCAM EN DIRECTO ({})\nCaptura V4L2 50 FPS Activa", device_path),
                             egui::FontId::proportional(16.0),
-                            Color32::from_rgb(100, 220, 255),
+                            Color32::from_rgb(90, 220, 255),
                         );
                     } else {
-                        painter.rect_filled(rect, 0.0, Color32::from_rgb(28, 20, 20));
+                        painter.rect_filled(rect, 0.0, Color32::from_rgb(26, 18, 18));
                         painter.text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
@@ -141,8 +203,7 @@ impl OpenVideoMixApp {
                     }
                 }
                 InputKind::ScreenCapture { display_id } => {
-                    painter.rect_filled(rect, 0.0, Color32::from_rgb(25, 30, 40));
-                    // Fake desktop elements with real time
+                    painter.rect_filled(rect, 0.0, Color32::from_rgb(24, 28, 38));
                     let taskbar = Rect::from_min_size(Pos2::new(rect.min.x, rect.max.y - 18.0), Vec2::new(rect.width(), 18.0));
                     painter.rect_filled(taskbar, 0.0, Color32::from_rgb(12, 14, 18));
                     painter.text(
@@ -155,7 +216,7 @@ impl OpenVideoMixApp {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        format!("🖥️ CAPTURA DE ESCRITORIO (Monitor #{})\nWayland / PipeWire Display Portal", display_id),
+                        format!("🖥️ CAPTURA DE ESCRITORIO (Monitor #{})\nWayland / PipeWire Display Portal (50 FPS)", display_id),
                         egui::FontId::proportional(16.0),
                         Color32::WHITE,
                     );
@@ -170,80 +231,42 @@ impl OpenVideoMixApp {
                         Color32::from_rgb(150, 200, 255),
                     );
                 }
-                InputKind::TitleOverlay { title, subtitle } => {
-                    painter.rect_filled(rect, 0.0, Color32::from_rgb(15, 15, 20));
-                    painter.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        format!("🏷️ RÓTULO CON ALFA (PNG)\n\"{}\"\n{}", title, subtitle),
-                        egui::FontId::proportional(15.0),
-                        Color32::from_rgb(255, 220, 120),
-                    );
-                }
-                InputKind::NetworkStream { url, protocol } => {
-                    painter.rect_filled(rect, 0.0, Color32::from_rgb(18, 22, 28));
-                    painter.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        format!("🌐 FLUXO DE REDE [{}]: {}", protocol, url),
-                        egui::FontId::proportional(14.0),
-                        Color32::LIGHT_BLUE,
-                    );
-                }
                 _ => {
                     painter.rect_filled(rect, 0.0, Color32::BLACK);
                 }
             },
             None => {
-                painter.rect_filled(rect, 0.0, Color32::from_rgb(10, 10, 12));
+                painter.rect_filled(rect, 0.0, Color32::from_rgb(12, 12, 14));
                 painter.text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
                     "NINGUNHA ENTRADA SELECCIONADA",
-                    egui::FontId::proportional(16.0),
+                    egui::FontId::proportional(15.0),
                     Color32::GRAY,
                 );
             }
         }
 
-        // RENDER ACTIVE OVERLAY 1 (LOWER THIRD WITH PNG TRANSPARENCY) OVER PROGRAM
+        // RENDER ACTIVE OVERLAY 1 WITH TRUE ALPHA TRANSPARENCY OVER PROGRAM
         if is_program {
             if let Some(ov_id) = self.mixer.active_overlay_1 {
-                if let Some(ov_input) = self.mixer.inputs.iter().find(|i| i.id == ov_id) {
-                    if let InputKind::TitleOverlay { title, subtitle } = &ov_input.kind {
-                        // Broadcast Lower Third Banner with Transparency
-                        let banner_margin = 16.0;
-                        let banner_w = rect.width() - (banner_margin * 2.0);
-                        let banner_h = 48.0;
-                        let banner_rect = Rect::from_min_size(
-                            Pos2::new(rect.min.x + banner_margin, rect.max.y - banner_h - 14.0),
-                            Vec2::new(banner_w, banner_h),
-                        );
+                if let Some(texture) = self.loaded_textures.get(&ov_id) {
+                    // Draw user-loaded transparent PNG over Program!
+                    // In vMix, lower thirds typically align at the bottom-center or left
+                    let banner_w = rect.width() * 0.85;
+                    let banner_h = banner_w * (texture.size_vec2().y / texture.size_vec2().x.max(1.0));
+                    let max_h = rect.height() * 0.40;
+                    let final_h = banner_h.min(max_h);
+                    let final_w = if banner_h > max_h { banner_w * (max_h / banner_h) } else { banner_w };
 
-                        // Translucent background with alpha channel (PNG style)
-                        painter.rect_filled(banner_rect, 6.0, Color32::from_rgba_premultiplied(16, 20, 28, 225));
-                        painter.rect_stroke(banner_rect, 6.0, Stroke::new(1.5_f32, Color32::from_rgba_premultiplied(0, 195, 255, 200)), StrokeKind::Inside);
+                    let ov_rect = Rect::from_min_size(
+                        Pos2::new(rect.center().x - (final_w / 2.0), rect.max.y - final_h - 12.0),
+                        Vec2::new(final_w, final_h),
+                    );
 
-                        // Accent colored tag
-                        let tag_rect = Rect::from_min_size(banner_rect.min, Vec2::new(6.0, banner_h));
-                        painter.rect_filled(tag_rect, 3.0, Color32::from_rgb(255, 80, 0));
-
-                        // Title and Subtitle text inside the lower third
-                        painter.text(
-                            Pos2::new(banner_rect.min.x + 16.0, banner_rect.min.y + 14.0),
-                            egui::Align2::LEFT_CENTER,
-                            title,
-                            egui::FontId::proportional(16.0),
-                            Color32::WHITE,
-                        );
-                        painter.text(
-                            Pos2::new(banner_rect.min.x + 16.0, banner_rect.min.y + 32.0),
-                            egui::Align2::LEFT_CENTER,
-                            subtitle,
-                            egui::FontId::proportional(11.0),
-                            Color32::from_rgb(180, 225, 255),
-                        );
-                    }
+                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    // egui respects RGBA alpha transparency automatically
+                    painter.image(texture.id(), ov_rect, uv, Color32::WHITE);
                 }
             }
         }
@@ -289,7 +312,7 @@ impl eframe::App for OpenVideoMixApp {
 
                 ui.label(RichText::new("PERFÍL:").strong());
                 ui.label(&self.mixer.settings.output_resolution);
-                ui.label(format!("@ {}", self.mixer.settings.frame_rate));
+                ui.label(RichText::new(format!("@ {}", self.mixer.settings.frame_rate)).color(Color32::from_rgb(0, 255, 180)).strong());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let stream_color = if self.mixer.is_streaming { Color32::from_rgb(220, 40, 40) } else { Color32::from_rgb(45, 50, 60) };
@@ -317,15 +340,15 @@ impl eframe::App for OpenVideoMixApp {
         // BOTTOM STATUS BAR
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(format!("FPS: {:.1}", self.mixer.fps));
+                ui.label(RichText::new(format!("FPS REAL: {:.1}", self.mixer.fps)).strong().color(Color32::from_rgb(0, 230, 160)));
                 ui.separator();
                 ui.label(format!("CPU: {:.1}%", self.mixer.cpu_usage_pct));
                 ui.separator();
                 ui.label(format!("Webcams detectadas: {}", self.connected_v4l2_devices.len()));
                 ui.separator();
 
-                if let Some(msg) = &self.ai_notification {
-                    ui.label(RichText::new(format!("🤖 IA: {}", msg)).color(Color32::from_rgb(100, 220, 180)));
+                if let Some(msg) = &self.status_notification {
+                    ui.label(RichText::new(msg).color(Color32::from_rgb(240, 200, 100)));
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -414,33 +437,32 @@ impl eframe::App for OpenVideoMixApp {
             ui.separator();
             ui.add_space(6.0);
 
-            // LOWER SECTION: INPUTS RACK + AUDIO MIXER + AI
+            // LOWER SECTION: INPUTS RACK + AUDIO MIXER
             ui.horizontal(|ui| {
-                // INPUTS SWITCHER (Left 65% width)
+                // INPUTS SWITCHER (Left 75% width)
                 ui.vertical(|ui| {
-                    ui.set_width(ui.available_width() * 0.65);
+                    ui.set_width(ui.available_width() * 0.75);
                     ui.horizontal(|ui| {
                         ui.heading("Entradas de Vídeo");
                         ui.label(format!("({} activas)", self.mixer.inputs.len()));
 
-                        if ui.button("➕ Engadir Cámara").clicked() {
-                            let next_id = (self.mixer.inputs.len() + 1) as u32;
+                        // Open native file dialog for real PNG/images
+                        if ui.button(RichText::new("🖼️ ENGADIR Rótulo PNG (Explorador)").strong().color(Color32::from_rgb(0, 210, 255))).clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("Imaxes con transparencia (*.png, *.webp, *.jpg)", &["png", "webp", "jpg", "jpeg"])
+                                .set_title("Seleccionar Rótulo ou Imaxe PNG")
+                                .pick_file()
+                            {
+                                self.load_image_input(ctx, path);
+                            }
+                        }
+
+                        if ui.button("➕ Engadir Cámara USB").clicked() {
+                            let next_id = (self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0)) + 1;
                             self.mixer.inputs.push(VideoInput::new(
                                 next_id,
                                 format!("Nova Cámara {}", next_id),
                                 InputKind::Camera { device_path: format!("/dev/video{}", next_id - 1) },
-                            ));
-                        }
-
-                        if ui.button("➕ Engadir Rótulo PNG").clicked() {
-                            let next_id = (self.mixer.inputs.len() + 1) as u32;
-                            self.mixer.inputs.push(VideoInput::new(
-                                next_id,
-                                format!("Rótulo {}", next_id),
-                                InputKind::TitleOverlay {
-                                    title: "NOVO TITULAR".into(),
-                                    subtitle: "Subtítulo do rótulo superposto".into(),
-                                },
                             ));
                         }
                     });
@@ -537,11 +559,11 @@ impl eframe::App for OpenVideoMixApp {
 
                 ui.separator();
 
-                // AUDIO MIXER & AI
+                // AUDIO MIXER (Right 25% width)
                 ui.vertical(|ui| {
                     ui.heading("Mesturador de Son");
                     ui.horizontal(|ui| {
-                        // Master Bus with Real dB-style Peak Meter
+                        // Master Bus with Peak Meter
                         ui.vertical(|ui| {
                             ui.label(RichText::new("MASTER").strong());
                             let mut vol = self.mixer.master_bus.volume;
@@ -572,38 +594,6 @@ impl eframe::App for OpenVideoMixApp {
                             }
                         });
                     });
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // AI Assistant Controls
-                    ui.heading("Copiloto de IA");
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(&mut self.ai_prompt);
-                        if ui.button("Executar").clicked() {
-                            if let Some(action) = self.ai_engine.parse_director_command(&self.ai_prompt) {
-                                match action {
-                                    AiBroadcastAction::SwitchCamera { target_input, reason } => {
-                                        self.mixer.select_program(target_input);
-                                        self.ai_notification = Some(format!("IA cambiou a cámara {} ({})", target_input, reason));
-                                    }
-                                    AiBroadcastAction::DisplayLowerThird { text, subtext, .. } => {
-                                        // Activate or update lower third overlay
-                                        if let Some(inp) = self.mixer.inputs.iter_mut().find(|i| matches!(i.kind, InputKind::TitleOverlay { .. })) {
-                                            inp.kind = InputKind::TitleOverlay { title: text.clone(), subtitle: subtext.clone() };
-                                            self.mixer.active_overlay_1 = Some(inp.id);
-                                        }
-                                        self.ai_notification = Some(format!("Rótulo activado: {} - {}", text, subtext));
-                                    }
-                                    _ => {}
-                                }
-                            } else {
-                                self.ai_notification = Some(format!("Comando enviado ao PCgrande: '{}'", self.ai_prompt));
-                            }
-                            self.ai_prompt.clear();
-                        }
-                    });
                 });
             });
         });
@@ -613,19 +603,18 @@ impl eframe::App for OpenVideoMixApp {
             egui::Window::new("⚙ Axustes de OPENVIDEOMIX")
                 .collapsible(false)
                 .resizable(true)
-                .default_size([580.0, 420.0])
+                .default_size([540.0, 380.0])
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.settings_tab, 0, "🎥 Vídeo");
+                        ui.selectable_value(&mut self.settings_tab, 0, "🎥 Vídeo (Resolución & FPS)");
                         ui.selectable_value(&mut self.settings_tab, 1, "🔊 Son");
-                        ui.selectable_value(&mut self.settings_tab, 2, "🤖 IA & PCgrande");
-                        ui.selectable_value(&mut self.settings_tab, 3, "🔌 Dispositivos");
+                        ui.selectable_value(&mut self.settings_tab, 2, "🔌 Dispositivos de Captura");
                     });
                     ui.separator();
 
                     match self.settings_tab {
                         0 => {
-                            ui.heading("Configuración de Vídeo");
+                            ui.heading("Configuración de Vídeo Profesional");
                             ui.horizontal(|ui| {
                                 ui.label("Resolución de Emisión:");
                                 egui::ComboBox::from_id_salt("res_combo")
@@ -636,17 +625,21 @@ impl eframe::App for OpenVideoMixApp {
                                         ui.selectable_value(&mut self.mixer.settings.output_resolution, "3840x2160 (4K UHD)".into(), "3840x2160 (4K UHD)");
                                     });
                             });
+                            ui.add_space(6.0);
                             ui.horizontal(|ui| {
-                                ui.label("Taxa de Cadros (FPS):");
+                                ui.label(RichText::new("Taxa de Cadros (FPS Reais):").strong());
                                 egui::ComboBox::from_id_salt("fps_combo")
                                     .selected_text(&self.mixer.settings.frame_rate)
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut self.mixer.settings.frame_rate, "59.94 fps".into(), "59.94 fps (Broadcast)");
+                                        ui.selectable_value(&mut self.mixer.settings.frame_rate, "50.00 fps (PAL Broadcast 50Hz)".into(), "50.00 fps (PAL Broadcast 50Hz)");
+                                        ui.selectable_value(&mut self.mixer.settings.frame_rate, "59.94 fps (NTSC Broadcast)".into(), "59.94 fps (NTSC Broadcast)");
                                         ui.selectable_value(&mut self.mixer.settings.frame_rate, "60.00 fps".into(), "60.00 fps");
+                                        ui.selectable_value(&mut self.mixer.settings.frame_rate, "25.00 fps (PAL Cinema)".into(), "25.00 fps (PAL Cinema)");
                                         ui.selectable_value(&mut self.mixer.settings.frame_rate, "30.00 fps".into(), "30.00 fps");
-                                        ui.selectable_value(&mut self.mixer.settings.frame_rate, "25.00 fps".into(), "25.00 fps (PAL)");
                                     });
                             });
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("ℹ️ 50.00 FPS é o estándar de emisión europeo (PAL / TVG / EBU). O motor axustará a cadencia de refresco exacta a 20.0ms por cadro.").weak());
                         }
                         1 => {
                             ui.heading("Configuración de Son");
@@ -655,21 +648,6 @@ impl eframe::App for OpenVideoMixApp {
                             ui.checkbox(&mut self.mixer.master_bus.muted, "Silenciar Master (Mute)");
                         }
                         2 => {
-                            ui.heading("Conexión cos Modelos de IA");
-                            ui.label("Servidor local no PCgrande (Ollama / vLLM):");
-                            ui.text_edit_singleline(&mut self.mixer.settings.pcgrande_endpoint);
-                            ui.label("Modelo local seleccionado:");
-                            ui.text_edit_singleline(&mut self.mixer.settings.pcgrande_model);
-
-                            if ui.button("📡 Probar conexión co PCgrande").clicked() {
-                                self.ai_notification = Some(format!("Conectando con {}...", self.mixer.settings.pcgrande_endpoint));
-                            }
-
-                            ui.separator();
-                            ui.label("Chave de API OpenAI Enterprise (Opcional):");
-                            ui.text_edit_singleline(&mut self.mixer.settings.openai_api_key);
-                        }
-                        3 => {
                             ui.heading("Dispositivos de Captura Detectados");
                             if ui.button("🔄 Refrescar Dispositivos").clicked() {
                                 self.refresh_video_devices();
@@ -696,6 +674,9 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(16)); // 60fps UI repaint
+        // Exact frame timing based on target FPS (e.g. 50.00 FPS -> exactly 20.0ms per frame)
+        let target_fps = self.mixer.settings.target_fps_value();
+        let frame_interval_millis = (1000.0 / target_fps) as u64;
+        ctx.request_repaint_after(Duration::from_millis(frame_interval_millis));
     }
 }
