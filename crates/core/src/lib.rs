@@ -1,7 +1,7 @@
 //! OPENVIDEOMIX Core Engine Types and State Management
 //!
 //! Provides the primary broadcast models: Inputs, Mixer State,
-//! Audio Buses, Transitions, and Event models.
+//! Audio Buses, Overlays, Transitions, and Settings models.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub enum InputKind {
     ScreenCapture { display_id: u32 },
     NetworkStream { url: String, protocol: String },
     MediaFile { path: String },
-    TitleOverlay { template: String, text: String },
+    TitleOverlay { title: String, subtitle: String },
     ColorBars,
     AudioOnly,
 }
@@ -33,9 +33,11 @@ pub struct VideoInput {
     pub is_online: bool,
     pub volume: f32, // 0.0 to 1.0
     pub is_muted: bool,
+    pub afv: bool, // Audio Follows Video
     pub audio_meter_peak: f32, // 0.0 to 1.0 for UI display
     pub is_tally_program: bool,
     pub is_tally_preview: bool,
+    pub is_overlay_active: bool,
 }
 
 impl VideoInput {
@@ -50,9 +52,11 @@ impl VideoInput {
             is_online: true,
             volume: 0.85,
             is_muted: false,
+            afv: true,
             audio_meter_peak: 0.0,
             is_tally_program: false,
             is_tally_preview: false,
+            is_overlay_active: false,
         }
     }
 }
@@ -70,7 +74,7 @@ pub enum TransitionType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioBus {
     pub name: String,
-    pub volume: f32, // 0.0 to 1.0 (linear scale, convertible to dB)
+    pub volume: f32, // 0.0 to 1.0
     pub muted: bool,
     pub solo: bool,
     pub peak_l: f32, // 0.0 to 1.0
@@ -90,11 +94,39 @@ impl AudioBus {
     }
 }
 
+/// Studio and hardware configuration settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectSettings {
+    pub output_resolution: String, // e.g. "1920x1080"
+    pub frame_rate: String,        // e.g. "59.94p"
+    pub audio_device: String,
+    pub audio_sample_rate: u32,
+    pub pcgrande_endpoint: String,
+    pub pcgrande_model: String,
+    pub openai_api_key: String,
+}
+
+impl Default for ProjectSettings {
+    fn default() -> Self {
+        Self {
+            output_resolution: "1920x1080 (Full HD)".into(),
+            frame_rate: "59.94 fps".into(),
+            audio_device: "SN6140 Analog / PipeWire".into(),
+            audio_sample_rate: 48000,
+            pcgrande_endpoint: "http://192.168.0.100:11434".into(),
+            pcgrande_model: "qwen2.5-coder:32b".into(),
+            openai_api_key: "".into(),
+        }
+    }
+}
+
 /// Global production state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MixerState {
     pub program_input: Option<InputId>,
     pub preview_input: Option<InputId>,
+    pub active_overlay_1: Option<InputId>,
+    pub overlay_opacity: f32, // 0.0 to 1.0
     pub active_transition: TransitionType,
     pub transition_duration_ms: u32,
     pub tbar_position: f32, // 0.0 (Preview) to 1.0 (Program)
@@ -109,27 +141,33 @@ pub struct MixerState {
     pub fps: f32,
     pub cpu_usage_pct: f32,
     pub dropped_frames: u64,
+    pub settings: ProjectSettings,
     pub started_at: DateTime<Utc>,
 }
 
 impl Default for MixerState {
     fn default() -> Self {
         let mut inputs = vec![
-            VideoInput::new(1, "CAM 1 - Principal", InputKind::Camera { device_path: "/dev/video0".into() }),
-            VideoInput::new(2, "CAM 2 - Plano Xeral", InputKind::Camera { device_path: "/dev/video2".into() }),
-            VideoInput::new(3, "VÍDEO - Intro Clip", InputKind::MediaFile { path: "assets/intro.mp4".into() }),
-            VideoInput::new(4, "CAPTURA - Escritorio", InputKind::ScreenCapture { display_id: 0 }),
-            VideoInput::new(5, "RÓTULO - Lower Third", InputKind::TitleOverlay { template: "news_title".into(), text: "OPENVIDEOMIX Live".into() }),
-            VideoInput::new(6, "BARRAS - Test Color", InputKind::ColorBars),
+            VideoInput::new(1, "CAM 1 - Principal (USB/V4L2)", InputKind::Camera { device_path: "/dev/video0".into() }),
+            VideoInput::new(2, "CAM 2 - Plano Xeral (USB/V4L2)", InputKind::Camera { device_path: "/dev/video2".into() }),
+            VideoInput::new(3, "CAPTURA - Escritorio / Pantalla", InputKind::ScreenCapture { display_id: 0 }),
+            VideoInput::new(4, "VÍDEO - Clip Promocional", InputKind::MediaFile { path: "assets/intro.mp4".into() }),
+            VideoInput::new(5, "RÓTULO - Lower Third (PNG)", InputKind::TitleOverlay {
+                title: "PROGRAMA EN DIRECTO".into(),
+                subtitle: "OPENVIDEOMIX Studio • vMix Alternativa Aberta".into(),
+            }),
+            VideoInput::new(6, "BARRAS - SMPTE 60fps Test", InputKind::ColorBars),
         ];
 
-        // Program initial: CAM 1, Preview initial: CAM 2
+        // Program initial: CAM 1, Preview initial: BARRAS
         inputs[0].is_tally_program = true;
-        inputs[1].is_tally_preview = true;
+        inputs[5].is_tally_preview = true;
 
         Self {
             program_input: Some(1),
-            preview_input: Some(2),
+            preview_input: Some(6),
+            active_overlay_1: Some(5), // Rótulo dispoñible para Overlay 1
+            overlay_opacity: 1.0,
             active_transition: TransitionType::Fade,
             transition_duration_ms: 500,
             tbar_position: 0.0,
@@ -142,8 +180,9 @@ impl Default for MixerState {
             is_recording: false,
             is_external_out: false,
             fps: 59.94,
-            cpu_usage_pct: 3.4,
+            cpu_usage_pct: 3.2,
             dropped_frames: 0,
+            settings: ProjectSettings::default(),
             started_at: Utc::now(),
         }
     }
@@ -161,7 +200,7 @@ impl MixerState {
         self.update_tally_flags();
     }
 
-    /// Select an input as Preview (or Program if double-clicked / selected directly)
+    /// Select an input as Preview
     pub fn select_preview(&mut self, id: InputId) {
         self.preview_input = Some(id);
         self.update_tally_flags();
@@ -173,11 +212,40 @@ impl MixerState {
         self.update_tally_flags();
     }
 
+    /// Toggle Overlay 1 for a specific input
+    pub fn toggle_overlay_1(&mut self, id: InputId) {
+        if self.active_overlay_1 == Some(id) {
+            self.active_overlay_1 = None;
+        } else {
+            self.active_overlay_1 = Some(id);
+        }
+        for input in &mut self.inputs {
+            input.is_overlay_active = self.active_overlay_1 == Some(input.id);
+        }
+    }
+
+    /// Remove an input from the mixer cleanly and safely
+    pub fn remove_input(&mut self, id: InputId) {
+        self.inputs.retain(|i| i.id != id);
+
+        if self.program_input == Some(id) {
+            self.program_input = self.inputs.first().map(|i| i.id);
+        }
+        if self.preview_input == Some(id) {
+            self.preview_input = self.inputs.first().map(|i| i.id);
+        }
+        if self.active_overlay_1 == Some(id) {
+            self.active_overlay_1 = None;
+        }
+        self.update_tally_flags();
+    }
+
     /// Update tally state for all inputs
     pub fn update_tally_flags(&mut self) {
         for input in &mut self.inputs {
             input.is_tally_program = self.program_input == Some(input.id);
             input.is_tally_preview = self.preview_input == Some(input.id);
+            input.is_overlay_active = self.active_overlay_1 == Some(input.id);
         }
     }
 
