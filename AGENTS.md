@@ -11,6 +11,7 @@ Benvido/a. Este documento define o contexto, a arquitectura, as normas de enxeñ
 - **Interface Gráfica (GUI)**: `egui` + `eframe` (renderizado directo acelerado por GPU, 0% Chromium/Electron, fluidez máxima).
 - **Plataforma de destino**: Linux e Windows (multiplataforma nativa).
 - **Estándar de Cadencia**: **50.00 FPS PAL Broadcast** (20.0ms por cadro), con opcións para 59.94p e 60p.
+- **Estudo Completo de vMix e OBS**: Consulta obrigatoriamente [docs/VMIX_OBS_ANALYSIS.md](docs/VMIX_OBS_ANALYSIS.md) para comprender o paradigma de *Inputs*, as canles de *Overlay 1-4*, o bus de son e os 5 alicerces da realización televisiva.
 
 ---
 
