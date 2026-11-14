@@ -20,7 +20,9 @@ ROOT = Path(__file__).resolve().parent.parent
 PRIVATE = ROOT / "local-results"
 DEFAULT_MODEL = "ollama/devstral-small-2:24b-instruct-2512-q4_K_M"
 FAST_MODEL = "ollama/qwen3.5:9b-q4_K_M"
-BRANCH = "feat/windows-local-alpha"
+BRANCH = "local/windows-alpha-work"
+LEGACY_BRANCH = "feat/windows-local-alpha"
+BASE_BRANCHES = {"main", "feat/windows-agent-verification-loop", "local/windows-alpha-base"}
 
 
 def capture(argv: list[str], timeout: int = 30) -> tuple[int, str]:
@@ -96,10 +98,10 @@ def work_branch() -> tuple[bool, str]:
     if code != 0:
         return False, "Cannot read current Git branch"
     branch = branch.strip()
-    if branch == BRANCH:
-        return True, "Resuming Windows Alpha feature branch"
-    if branch != "main":
-        return False, f"Current branch {branch} is not the approved feature branch"
+    if branch in (BRANCH, LEGACY_BRANCH):
+        return True, "Resuming existing Windows Alpha feature branch"
+    if branch not in BASE_BRANCHES:
+        return False, f"Current branch {branch} is not a permitted Alpha starting point"
     code, changes = capture(["git", "status", "--porcelain"])
     if code != 0 or changes.strip():
         return False, "Main has uncommitted changes: refusing to switch"
