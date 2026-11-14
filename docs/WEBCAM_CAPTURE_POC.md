@@ -6,7 +6,7 @@ Esta é unha **proba de concepto**, non unha integración de produción:
 - Recibe fotogramas reais dunha cámara predeterminada por `autovideosrc` e amósaos en **Preview**, **Program** e miniaturas da entrada nova.
 - Captura **vídeo, non audio**. Un pipeline de mostra negociado a 640×360/30 fps RGBA utilízase para limitar a memoria e o custo de copia.
 - O proceso de captura corre nun fío separado cunha cola acoutada de 3 fotogramas; descártanse fotogramas cando a UI non consegue consumilos. A GUI mostra a última textura dispoñible.
-- O botón `Engadir webcam USB (proba)` tenta abrir a cámara predeterminada do sistema; **aínda non permite escoller un dispositivo nin abre varias cámaras simultaneamente**.
+- O botón `Engadir webcam USB (proba)` tenta abrir a cámara predeterminada do sistema. O botón `Engadir sinal sintético GStreamer` utiliza un xerador de vídeo en movemento (`videotestsrc`) que percorre exactamente o mesmo pipeline RGBA e as mesmas texturas de Preview/Program. A proba sintética **non** acredita que funcione unha cámara USB. Por agora só se admite unha captura activa; aínda non permite escoller dispositivos nin abrir varias cámaras simultaneamente.
 - Os dispositivos/cámara simulados iniciais da aplicación seguen sendo marcadores de posición, sen emisión real.
 - Non hai gravación nin emisión, nin transicións GPU reais, nin captura 1080p50 garantida.
 - A interface de control PTZ e seguimento OBSBOT continúa fóra de alcance.
