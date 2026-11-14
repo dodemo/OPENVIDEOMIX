@@ -84,3 +84,9 @@ Descrición breve e clara da función ou corrección que se quere acadar.
 3. **Reprodución de Vídeo MP4/MKV**: Reprodución de clips de vídeo con son integrado e bucle.
 4. **Motor de Son Real**: Lectura do micrófono analóxico/USB con vúmetros de decibelios reais (dBFS).
 5. **Gravación e Streaming (Outputs)**: Saída RTMP cara a servidores locais/YouTube e saída de Cámara Virtual (`v4l2loopback`).
+
+---
+
+## 6. Criterio para decisións de produto sen especificación explícita
+
+Cando haxa unha dúbida funcional ou de interacción, **priorizar o comportamento e modelo operativo de vMix**; usar OBS Studio como referencia secundaria cando vMix non resolva o caso. Aplicar este criterio especialmente a entradas, Preview/Program, transicións, overlays, buses, AFV, configuración de fontes, atallos e saídas. A referencia é a experiencia e a función, **non unha copia de marcas nin recursos gráficos protexidos**. Non inferir que bibliotecas ou protocolos propietarios de vMix deben usarse: seleccionar cada implementación segundo soporte Linux/Windows/macOS, licenzas, accesibilidade, calidade e medicións reais. Documentar diferenzas deliberadas e poñer ao usuario só decisións de produto de calado importante.
