@@ -7,6 +7,7 @@ pub mod camera;
 pub mod media_timebase;
 
 pub mod reference_compositor;
+pub mod reference_output;
 
 pub mod commands;
 pub mod midi;
