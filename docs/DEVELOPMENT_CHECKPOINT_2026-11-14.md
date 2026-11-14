@@ -1,5 +1,66 @@
 # Development continuation checkpoint — 2026-11-14
 
+## Encargo actual #43: integración e reparación de CI
+
+A petición explícita de executar #43 resolve a antiga pregunta de alcance de #41.
+As seccións anteriores de traballo conservadas máis abaixo son históricas: non
+autorizan novas funcións nin bloquean a integración solicitada agora. Non se
+activou #39, Antigravity, axentes paralelos, APIs de IA de pago nin novos servizos.
+O alcance é consolidar as PR existentes; a primeira versión segue incompleta.
+
+Estado antes da validación final de #42:
+
+| PR | Head verificado | Merge en main | CI de calidade |
+| --- | --- | --- | --- |
+| #25 | `20e2829d2b8a332c7f8e4aa62d13462a7e29751b` | `e1528aa2c7ae33d44de7c33c9b5bd1dcebc7a390` | [43630304508](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43630304508) |
+| #34 | `55d5ca48f9f0c5c6c2bf399f330381133b7f44cf` | `99bca30bbc0f8bdab05b410f068a36c63f6bc9de` | [43632303986](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43632303986) |
+| #32 | `26e031eef46ae89e2bf5a594d4a177a85dcac3c8` | `12d5a4caac92012bddc9e1c375f60e66f496973e` | [43633325413](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43633325413) |
+| #35 | `c0c4fc2f35448b4d0db68630bd3696843a2f364a` | `8370514a77d3ebd3206730c5e55352ebadd401d6` | [43634685231](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43634685231) |
+| #36 | `e3f281583bf5dd82cb65f88650dca1e64fbb3516` | `58b452379b73b29f0b1e31521295158f7c0557c4` | [43634751818](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43634751818) |
+| #37 | `8afd9363bb1c2dc3a3bd6583d8ff002e5c3f8217` | `128923fd4f2280990c711559a7949c84c0bc31c8` | [43634766878](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43634766878) |
+
+Todos os workflows aplicables deses heads remataron con éxito antes de fusionar.
+Usáronse merges normais, sen force push nin cambios das proteccións ou workflows.
+O conflito #35 era a exportación de `camera_registry`: conservouse xunto ao ingreso
+de captura. O reloxo compartido de #34 xa estaba en #35; non se duplicou.
+
+Para evitar recompilar a mesma integración, #36/#37 recibiron os heads actualizados
+das súas bases por merges normais. Só se cambiaron a main tras fusionar a predecesora.
+`git merge-tree --write-tree` comprobou que as árbores resultantes eran idénticas
+ás validadas: #36 `6187dd404ed2dfab92efd04c244af4c4246516d6`; #37
+`e934478bd2d1591c182149621a4cbcc0f9187be0`. Os heads non cambiaron despois da CI.
+
+#42 incorpora agora main `128923f` por merge normal. A corrección `bc3b845` limita
+`monitor_image` a `cfg(any(feature = "gstreamer-capture", test))`: os consumidores
+reais requiren captura, e a proba de monitorización segue activa sen esa feature.
+Os fallos orixinais eran dead_code elevado a erro por Clippy nos builds Base/API
+sen GStreamer; non eran fallos inocuos nin se suprimiu o lint.
+[Log Base](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43631488677/job/132558871356),
+[log API](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43631488765/job/132558871528).
+Os sete workflows de `bc3b845` pasaron, incluídos
+[Base](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43632517266) e
+[API](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43632517251).
+O head que inclúe este checkpoint require a súa propia CI antes de fusionar.
+Consultar [#43](https://github.com/dodemo/OPENVIDEOMIX/issues/43) para o resultado
+final, o seu SHA exacto e os enlaces de todas as comprobacións finais.
+
+Nesta sesión non había Cargo nin GStreamer de desenvolvemento locais: a validación
+de código fíxose na CI existente. FFmpeg, FFprobe e o script conservado verificaron
+de novo o WebM histórico de #42: hash e JSON coinciden exactamente coa evidencia
+publicada (214 fotogramas, 12,46 s, 409 ocos, 17,17 fps efectivos, estéreo 48 kHz).
+É unha verificación do ficheiro sintético histórico, non unha nova proba da GUI
+ou do rendemento do head actual. Non hai cámaras/micrófonos físicos cualificados,
+sincronía física A/V, GPU nin 1080p50 sostido verificados. A cualificación multimedia
+opcional en Windows/macOS e os gates de distribución/licenzas de #33 seguen abertos.
+Non se engadiron dependencias nesta reparación nin código GPL; isto non é unha
+auditoría legal dos binarios distribuídos. Refs #3 #5 #6 #7 #8 #33 #41.
+
+Exclusión mutua desta sesión: `codex/continuation-lock`, creado atomicamente no
+target `e1528aa2c7ae33d44de7c33c9b5bd1dcebc7a390`. Liberar só ese ref, tras publicar
+este checkpoint e o resultado en #43; nunca eliminar ramas de código para recuperalo.
+
+## Historia anterior (superada polo encargo #43)
+
 ## Handoff update: scope clarification pending after new audit #41
 
 Desktop PR: **[#42](https://github.com/dodemo/OPENVIDEOMIX/pull/42)**,

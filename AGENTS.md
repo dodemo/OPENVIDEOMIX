@@ -103,16 +103,18 @@ OPENVIDEOMIX debe soportar **Stream Deck/OpenDeck e controladores USB MIDI**, en
 
 ## Active autonomous assignment (2026-11-14)
 
-Read [docs/AUTONOMOUS_GOAL.md](docs/AUTONOMOUS_GOAL.md), the latest user assignment,
-then [docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md](docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md)
-and the live GitHub state before continuing. The product name is OPENVIDEOMIX.
-Apply clean-room Study -> Build -> Check -> Refine/Ready for each functional
-milestone, using observable vMix behavior/public documentation and original code.
-Prioritize a usable desktop capture/test video -> Preview -> CUT -> actual Program
--> synchronized playable recording slice. Do not stop merely at another reference
-library, PR or checkpoint. Issue #33 is a release gate alongside media acceptance.
-Windows/Linux/macOS Intel/Apple Silicon, 1080p50 and 48 kHz remain mandatory.
-No COMPLETE claim until the full first-release acceptance evidence is verified.
+The latest user assignment is [issue #43](https://github.com/dodemo/OPENVIDEOMIX/issues/43):
+integrate the existing PR chain and repair CI, without additional product features,
+separately billed APIs, external AI agents or new services. Read the latest section
+of [docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md](docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md)
+and live GitHub heads/checks before continuing. The broader
+[docs/AUTONOMOUS_GOAL.md](docs/AUTONOMOUS_GOAL.md) is historical context, not permission
+to expand this assignment. The old #41 scope question is resolved by #43.
+Retarget dependencies only after their predecessors are in main; merge only reviewed,
+compatible changes with successful applicable CI on their exact current heads.
+Preserve Windows/Linux/macOS Intel/Apple Silicon, 1080p50 and 48 kHz.
+Issue #33 remains a release gate. Integrating this chain does not complete the first
+release or qualify physical devices, real audio, GPU composition or live 1080p50.
 
 ### Serialized continuation
 
