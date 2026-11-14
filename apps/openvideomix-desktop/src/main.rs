@@ -1,6 +1,8 @@
 mod app;
 #[cfg(feature = "local-control-api")]
 mod remote_control;
+#[cfg(feature = "midi-input")]
+mod midi_input;
 
 use app::OpenVideoMixApp;
 
