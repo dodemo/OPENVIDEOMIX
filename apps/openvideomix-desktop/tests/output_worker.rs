@@ -26,6 +26,7 @@ fn config() -> WorkerConfig {
         channel_capacity: 2,
         max_hold: Duration::from_millis(100),
         start_delay: Duration::from_millis(20),
+        input_latency: Duration::ZERO,
     }
 }
 fn frame(pts: u64) -> CameraFrame {

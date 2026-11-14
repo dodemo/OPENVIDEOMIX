@@ -94,7 +94,7 @@ impl ProgramRecorder {
         let pipeline = gst::parse::launch(
             "appsrc name=video format=time is-live=false block=false ! \
              queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 ! \
-             videoconvert ! vp8enc name=encoder deadline=1 cpu-used=8 ! mux. \
+             videoconvert ! vp8enc name=encoder deadline=1 cpu-used=8 threads=4 ! mux. \
              appsrc name=audio format=time is-live=false block=false ! \
              queue max-size-buffers=4 max-size-bytes=0 max-size-time=0 ! \
              audioconvert ! vorbisenc ! mux. webmmux name=mux ! filesink name=output",
@@ -198,6 +198,35 @@ impl ProgramRecorder {
             .ok()
             .and_then(|end| end.checked_sub(self.audio_samples))
             .ok_or_else(|| "Audio sample index overflow".into())
+    }
+
+    /// Bounded wait for a single-producer recording consumer. This does not
+    /// enqueue anything, drop frames, advance PTS or run on the GUI/media thread.
+    pub fn wait_for_frame_capacity(
+        &self,
+        frame_index: u64,
+        timeout: Duration,
+    ) -> Result<(), String> {
+        let audio_bytes = self
+            .required_audio_samples_for_frame(frame_index)?
+            .checked_mul(CHANNELS * 4)
+            .ok_or("PCM size overflow")?;
+        if audio_bytes > self.audio.max_bytes() || self.frame_bytes > self.video.max_bytes() {
+            return Err("Recording transaction exceeds bounded encoder queue".into());
+        }
+        let started = Instant::now();
+        loop {
+            self.check_bus()?;
+            if self.video.current_level_bytes() <= self.video.max_bytes() - self.frame_bytes
+                && self.audio.current_level_bytes() <= self.audio.max_bytes() - audio_bytes
+            {
+                return Ok(());
+            }
+            if started.elapsed() >= timeout {
+                return Err("Recording encoder capacity wait timed out".into());
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
     }
 
     /// Supply the actual composited Program frame and actual PCM data. This

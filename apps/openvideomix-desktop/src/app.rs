@@ -16,12 +16,70 @@ use openvideomix_core::midi::{
     MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget,
 };
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
+#[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+/// The console displays at most 640x360 pixels; production buffers keep their
+/// full requested dimensions. This avoids repeated full-HD GUI color conversion.
+fn monitor_image(width: usize, height: usize, rgba: &[u8]) -> egui::ColorImage {
+    let step = width.div_ceil(640).max(height.div_ceil(360)).max(1);
+    let size = [width.div_ceil(step), height.div_ceil(step)];
+    let mut pixels = Vec::with_capacity(size[0] * size[1]);
+    for y in (0..height).step_by(step) {
+        for x in (0..width).step_by(step) {
+            let index = (y * width + x) * 4;
+            pixels.push(Color32::from_rgba_unmultiplied(
+                rgba[index],
+                rgba[index + 1],
+                rgba[index + 2],
+                rgba[index + 3],
+            ));
+        }
+    }
+    egui::ColorImage { size, pixels }
+}
+
+/// egui may replay one input through multiple layout passes. GUI commands must
+/// run once per input timestamp; remote/MIDI dispatch remain independently ordered.
+#[derive(Default)]
+struct GuiCommandGate {
+    time: Option<f64>,
+    commands: Vec<ProductionCommand>,
+}
+impl GuiCommandGate {
+    fn allow(&mut self, time: f64, command: &ProductionCommand) -> bool {
+        if self.time != Some(time) {
+            self.time = Some(time);
+            self.commands.clear();
+        }
+        if self.commands.contains(command) {
+            return false;
+        }
+        self.commands.push(command.clone());
+        true
+    }
+}
+
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
     pub dispatcher: CommandDispatcher,
+    gui_time: f64,
+    gui_commands: GuiCommandGate,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    production: Option<DesktopProduction>,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    program_texture: Option<TextureHandle>,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    program_frame_index: Option<u64>,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    recording_intent_seen: u64,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    show_recording_setup: bool,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    recording_path: String,
+
     #[cfg(feature = "local-control-api")]
     remote: Option<RemoteControl>,
     pub status_notification: Option<String>,
@@ -54,6 +112,22 @@ impl OpenVideoMixApp {
         let mut app = Self {
             mixer: MixerState::default(),
             dispatcher: CommandDispatcher::default(),
+            gui_time:0.0,
+            gui_commands:GuiCommandGate::default(),
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            production: None,
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            program_texture: None,
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            program_frame_index: None,
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            recording_intent_seen: 0,
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            show_recording_setup: false,
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            recording_path: std::env::current_dir().unwrap_or_else(|_|std::env::temp_dir()).join("recordings").join(format!("openvideomix-{}.webm",Local::now().format("%Y%m%d-%H%M%S"))).to_string_lossy().into_owned(),
+
+
             #[cfg(feature = "local-control-api")]
             remote: None,
             status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
@@ -100,8 +174,107 @@ impl OpenVideoMixApp {
 
     /// One validated command entry point for the GUI and external surfaces.
     fn apply_command(&mut self, command: ProductionCommand) {
+        if !self.gui_commands.allow(self.gui_time, &command) {
+            return;
+        }
         if let Err(error) = self.dispatcher.dispatch(&mut self.mixer, command) {
             self.status_notification = Some(format!("Orde rexeitada: {error}"));
+        }
+    }
+
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    fn start_test_studio(&mut self) {
+        if self.production.is_some() {
+            return;
+        }
+        let Some(first) = self
+            .mixer
+            .inputs
+            .iter()
+            .map(|input| input.id)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+        else {
+            return;
+        };
+        let Some(end) = first.checked_add(4) else {
+            return;
+        };
+        let ids: Vec<_> = (first..end).collect();
+        match DesktopProduction::start(&ids) {
+            Ok(production) => {
+                for (pattern, id) in ids.into_iter().enumerate() {
+                    let mut input = VideoInput::new(
+                        id,
+                        format!("TEST {} · 1080p50", pattern + 1),
+                        InputKind::Camera {
+                            device_path: format!("production-test:{pattern}"),
+                        },
+                    );
+                    input.is_online = false;
+                    self.mixer.inputs.push(input);
+                    self.capture_sessions.insert(
+                        id,
+                        CameraSession::start_production_test(
+                            id,
+                            pattern as u32,
+                            production.ingress(),
+                        ),
+                    );
+                }
+                self.production = Some(production);
+                self.apply_command(ProductionCommand::SelectPreview { input: first });
+                self.status_notification=Some("4 sinais de proba 1080p50. Preme CUT para envialos a Program. A gravación usa ton de proba, non micrófono.".into());
+            }
+            Err(error) => self.status_notification = Some(error),
+        }
+    }
+
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    fn poll_production(&mut self, ctx: &egui::Context) {
+        let Some(production) = &self.production else {
+            return;
+        };
+        production.route(
+            self.mixer.program_input,
+            self.mixer.active_overlay_1,
+            self.mixer.master_bus.volume,
+            self.mixer.master_bus.muted,
+        );
+        if let Some(intent) = &self.mixer.recording_intent {
+            if intent.revision != self.recording_intent_seen {
+                self.recording_intent_seen = intent.revision;
+                let result = match &intent.path {
+                    Some(path) => production.start_test_recording(PathBuf::from(path)),
+                    None => production.stop_recording(),
+                };
+                if let Err(error) = result {
+                    self.status_notification = Some(error);
+                }
+            }
+        }
+        let view = production.view();
+        self.mixer.is_recording = matches!(view.recording, RecordingState::Recording { .. });
+        if let Some((index, frame)) = view.latest {
+            if self.program_frame_index != Some(index) {
+                let image =
+                    monitor_image(frame.width as usize, frame.height as usize, &frame.pixels);
+                match self.program_texture.as_mut() {
+                    Some(texture) => texture.set(image, egui::TextureOptions::LINEAR),
+                    None => {
+                        self.program_texture = Some(ctx.load_texture(
+                            "actual-program",
+                            image,
+                            egui::TextureOptions::LINEAR,
+                        ))
+                    }
+                }
+                self.program_frame_index = Some(index);
+            }
+        } else {
+            self.program_texture = None;
+            self.program_frame_index = None;
         }
     }
 
@@ -336,8 +509,7 @@ impl OpenVideoMixApp {
         }
 
         for (id, frame) in updates {
-            let image =
-                egui::ColorImage::from_rgba_unmultiplied([frame.width, frame.height], &frame.rgba);
+            let image = monitor_image(frame.width, frame.height, &frame.rgba);
             if let Some(texture) = self.loaded_textures.get_mut(&id) {
                 texture.set(image, egui::TextureOptions::LINEAR);
             } else {
@@ -364,8 +536,12 @@ impl OpenVideoMixApp {
             if let Some(input) = self.mixer.inputs.iter_mut().find(|input| input.id == id) {
                 input.width = frame.width as u32;
                 input.height = frame.height as u32;
-                input.fps = 30; // PoC negotiated output, not measured output FPS.
+                let production_test = matches!(&input.kind,InputKind::Camera {device_path} if device_path.starts_with("production-test:"));
+                input.fps = if production_test { 50 } else { 30 }; // Negotiated, never measured FPS.
                 input.is_online = true;
+                if production_test {
+                    continue;
+                }
                 input.name = if matches!(
                     &input.kind,
                     InputKind::Camera { device_path } if device_path.starts_with("synthetic:")
@@ -451,15 +627,10 @@ impl OpenVideoMixApp {
 
         self.animated_tick += 0.05;
 
-        // Dynamic audio meters update
-        let sin_val = (self.animated_tick.sin().abs() * 0.65) + 0.15;
-        self.mixer.master_bus.peak_l = sin_val;
-        self.mixer.master_bus.peak_r = (sin_val * 0.92).clamp(0.0, 1.0);
-
-        for (i, input) in self.mixer.inputs.iter_mut().enumerate() {
-            let offset = (i as f32) * 1.3;
-            let p = ((self.animated_tick + offset).sin().abs() * 0.75).clamp(0.0, 0.98);
-            input.audio_meter_peak = if input.is_muted { 0.0 } else { p };
+        self.mixer.master_bus.peak_l = 0.0;
+        self.mixer.master_bus.peak_r = 0.0;
+        for input in &mut self.mixer.inputs {
+            input.audio_meter_peak = 0.0; // Source audio has not been captured.
         }
     }
 
@@ -471,7 +642,28 @@ impl OpenVideoMixApp {
         input_id: Option<InputId>,
         is_program: bool,
     ) {
-        let painter = ui.painter();
+        let painter = ui.painter().with_clip_rect(rect);
+        #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+        if is_program && self.production.is_some() {
+            painter.rect_filled(rect, 0.0, Color32::BLACK);
+            if let Some(texture) = &self.program_texture {
+                painter.image(
+                    texture.id(),
+                    rect,
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            } else {
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "Program sen fotogramas válidos",
+                    egui::FontId::proportional(16.0),
+                    Color32::YELLOW,
+                );
+            }
+            return;
+        }
         let input = input_id.and_then(|id| self.mixer.inputs.iter().find(|i| i.id == id));
 
         match input {
@@ -531,7 +723,7 @@ impl OpenVideoMixApp {
                     // Timecode display in 50 FPS PAL standard
                     let now_str = Local::now().format("%H:%M:%S").to_string();
                     let frames_50 = ((self.animated_tick * 25.0) as u32) % 50;
-                    let tc = format!("{}:{:02} (50.00 FPS PAL)", now_str, frames_50);
+                    let tc = format!("{}:{:02} (animación UI)", now_str, frames_50);
                     painter.text(
                         Pos2::new(rect.center().x, bottom_rect.center().y),
                         egui::Align2::CENTER_CENTER,
@@ -653,10 +845,16 @@ impl OpenVideoMixApp {
 
 impl eframe::App for OpenVideoMixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.gui_time = ctx.input(|input| input.time);
+        if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, Key::Q)) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         #[cfg(feature = "local-control-api")]
         if let Some(remote) = &mut self.remote {
             remote.poll(&mut self.dispatcher, &mut self.mixer);
         }
+        #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+        self.poll_production(ctx);
         self.update_simulation();
         #[cfg(feature = "gstreamer-capture")]
         self.poll_camera(ctx);
@@ -665,11 +863,13 @@ impl eframe::App for OpenVideoMixApp {
         #[cfg(feature = "midi-input")]
         self.poll_midi();
 
-        // Keyboard Shortcuts (CUT with Space/Enter; other transitions unavailable)
-        if ctx.input(|i| i.key_pressed(Key::Space)) {
-            self.apply_command(ProductionCommand::Cut);
-        }
-        if ctx.input(|i| i.key_pressed(Key::Enter)) {
+        // Consume one CUT key once; text entry must never trigger an on-air CUT.
+        if !ctx.wants_keyboard_input()
+            && ctx.input_mut(|input| {
+                input.consume_key(egui::Modifiers::NONE, Key::Space)
+                    || input.consume_key(egui::Modifiers::NONE, Key::Enter)
+            })
+        {
             self.apply_command(ProductionCommand::Cut);
         }
         if ctx.input(|i| i.key_pressed(Key::F1)) {
@@ -682,11 +882,14 @@ impl eframe::App for OpenVideoMixApp {
             Key::Num4,
             Key::Num5,
             Key::Num6,
+            Key::Num7,
+            Key::Num8,
+            Key::Num9,
         ]
         .iter()
         .enumerate()
         {
-            if ctx.input(|i| i.key_pressed(*key)) {
+            if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(*key)) {
                 if let Some(inp) = self.mixer.inputs.get(idx) {
                     let id = inp.id;
                     self.apply_command(ProductionCommand::SelectPreview { input: id });
@@ -699,6 +902,43 @@ impl eframe::App for OpenVideoMixApp {
         visuals.panel_fill = Color32::from_rgb(18, 20, 24);
         visuals.window_fill = Color32::from_rgb(24, 27, 32);
         ctx.set_visuals(visuals);
+
+        #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+        if self.show_recording_setup {
+            let mut start = false;
+            let mut cancel = false;
+            egui::Window::new("Gravar Program · proba audiovisual").default_width(650.0).default_pos(Pos2::new(300.0,150.0)).collapsible(false).resizable(true).show(ctx,|ui| {
+                ui.label("Sinal: Program composto real. Audio: ton xerado de 1 kHz, estéreo 48 kHz; sen micrófono.");
+                ui.label("Destino WebM (non se sobrescriben ficheiros):");
+                ui.add(egui::TextEdit::singleline(&mut self.recording_path).desired_width(580.0));
+                ui.horizontal(|ui| {start=ui.button("Iniciar gravación de proba").clicked();cancel=ui.button("Cancelar").clicked();});
+            });
+            if cancel {
+                self.show_recording_setup = false;
+            }
+            if start {
+                let path = PathBuf::from(&self.recording_path);
+                let result = (|| {
+                    let directory = path.parent().ok_or("Destino sen cartafol")?;
+                    std::fs::create_dir_all(directory)
+                        .map_err(|error| format!("Cartafol: {error}"))?;
+                    self.production
+                        .as_ref()
+                        .ok_or("Estudo non iniciado")?
+                        .approve_recording_directory(directory)?;
+                    Ok::<(), String>(())
+                })();
+                match result {
+                    Ok(()) => {
+                        self.apply_command(ProductionCommand::StartTestRecording {
+                            path: self.recording_path.clone(),
+                        });
+                        self.show_recording_setup = false;
+                    }
+                    Err(error) => self.status_notification = Some(error),
+                }
+            }
+        }
 
         // TOP HEADER
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
@@ -715,8 +955,17 @@ impl eframe::App for OpenVideoMixApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled(false, egui::Button::new("EMITIR (pendente)"))
                         .on_disabled_hover_text("RTMP/SRT non están implementados. Este botón non inicia unha emisión.");
-                    ui.add_enabled(false, egui::Button::new("GRAVAR (pendente)"))
-                        .on_disabled_hover_text("A gravación real aínda non está implementada. Este botón non crea un ficheiro.");
+                    #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+                    {
+                        let view=self.production.as_ref().map(DesktopProduction::view);
+                        let active=view.as_ref().is_some_and(|view|view.recording.active());
+                        if ui.add_enabled(view.as_ref().is_some_and(|view|view.latest.is_some())||active,egui::Button::new(if active {"PARAR GRAVACIÓN"}else{"GRAVAR TESTE"})).on_hover_text("Grava Program real con ton de proba de 1 kHz a 48 kHz. Non captura micrófono.").clicked() {
+                            if active {self.apply_command(ProductionCommand::StopRecording);}
+                            else {self.show_recording_setup=true;}
+                        }
+                    }
+                    #[cfg(not(all(feature="gstreamer-capture",feature="gstreamer-recording")))]
+                    ui.add_enabled(false,egui::Button::new("GRAVAR (pendente)"));
 
                     let settings_btn = egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(Color32::WHITE))
                         .fill(if self.show_settings { Color32::from_rgb(0, 120, 200) } else { Color32::from_rgb(45, 50, 60) });
@@ -751,10 +1000,8 @@ impl eframe::App for OpenVideoMixApp {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new(
-                            "Atallos: Espazo (CUT) | Enter (FADE) | 1-6 (PVW) | F1 (Axustes)",
-                        )
-                        .weak(),
+                        RichText::new("Atallos: Espazo/Enter (CUT) | 1-9 (PVW) | F1 (Axustes)")
+                            .weak(),
                     );
                 });
             });
@@ -801,49 +1048,32 @@ impl eframe::App for OpenVideoMixApp {
                     );
                 });
 
-                // TRANSITION CONTROLS & T-BAR
+                // Primary transition controls
                 ui.vertical(|ui| {
                     ui.set_width(130.0);
                     ui.add_space(8.0);
 
-                    if ui
-                        .add_sized(
-                            [120.0, 38.0],
-                            egui::Button::new(
-                                RichText::new("CUT")
-                                    .strong()
-                                    .size(15.0)
-                                    .color(Color32::WHITE),
-                            ),
-                        )
-                        .clicked()
-                    {
+                    let cut_response = ui.add_sized(
+                        [120.0, 38.0],
+                        egui::Button::new(
+                            RichText::new("CUT")
+                                .strong()
+                                .size(15.0)
+                                .color(Color32::WHITE),
+                        ),
+                    );
+                    if cut_response.clicked() {
                         self.apply_command(ProductionCommand::Cut);
                     }
 
                     ui.add_space(4.0);
 
-                    ui.add_enabled(false, egui::Button::new("FADE (pendente)"))
+                    ui.add_enabled(false, egui::Button::new("MIX (pendente)"))
                         .on_disabled_hover_text(
                             "FADE require composición interpolada de vídeo; non é un CUT.",
                         );
-                    ui.add_enabled(false, egui::Button::new("MERGE (pendente)"))
-                        .on_disabled_hover_text("MERGE aínda non produce unha transición visual.");
                     ui.add_enabled(false, egui::Button::new("WIPE (pendente)"))
                         .on_disabled_hover_text("WIPE require máscaras no compositor GPU.");
-
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("T-BAR (pendente)").weak());
-                    let mut tbar = self.mixer.tbar_position;
-                    ui.add_enabled(
-                        false,
-                        egui::Slider::new(&mut tbar, 0.0..=1.0)
-                            .vertical()
-                            .show_value(false),
-                    )
-                    .on_disabled_hover_text(
-                        "O T-Bar aínda non renderiza fotogramas de transición.",
-                    );
                 });
 
                 // PROGRAM (PGM)
@@ -857,7 +1087,7 @@ impl eframe::App for OpenVideoMixApp {
 
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new("PROGRAM (demostración)")
+                            RichText::new("PROGRAM")
                                 .color(Color32::from_rgb(240, 50, 50))
                                 .strong(),
                         );
@@ -883,6 +1113,61 @@ impl eframe::App for OpenVideoMixApp {
             ui.add_space(10.0);
             ui.separator();
             ui.add_space(6.0);
+
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .add_enabled(
+                        self.production.is_none(),
+                        egui::Button::new("Iniciar estudo de proba · 4 fontes 1080p50"),
+                    )
+                    .clicked()
+                {
+                    self.start_test_studio();
+                }
+                if self.production.is_some() {
+                    let sources:Vec<_>=self.mixer.inputs.iter().filter(|input|matches!(&input.kind,InputKind::Camera {device_path} if device_path.starts_with("production-test:"))).map(|input|(input.id,input.name.clone(),input.is_online)).collect();
+                    for (number,(id,name,online)) in sources.into_iter().enumerate() {
+                        if ui.add_enabled(online,egui::Button::new(format!("PVW T{}",number+1))).on_hover_text(name).clicked() {self.apply_command(ProductionCommand::SelectPreview {input:id});}
+                    }
+                }
+                if let Some(production) = &self.production {
+                    let view = production.view();
+                    ui.label(format!(
+                        "Program: {} compostos · {} prazos perdidos · {} paquetes descartados",
+                        view.stats.rendered_frames,
+                        view.stats.missed_deadlines,
+                        view.stats.output_queue_drops
+                    ));
+                    match view.recording {
+                        RecordingState::Idle => {
+                            ui.label("Son para gravación: ton de proba (sen micrófono)");
+                        }
+                        RecordingState::Starting(path) => {
+                            ui.label(format!("Abrindo {}", path.display()));
+                        }
+                        RecordingState::Recording {
+                            submitted, gaps, ..
+                        } => {
+                            ui.label(format!("GRAVANDO TESTE: {submitted} enviados, {gaps} ocos · {} descartados na gravación", view.recording_queue_drops));
+                        }
+                        RecordingState::Saved(stats) => {
+                            ui.label(format!(
+                                "Gardado: {} · {} codificados · {} ocos",
+                                stats.path.display(),
+                                stats.encoded_video_frames,
+                                stats.missing_video_frames
+                            ));
+                        }
+                        RecordingState::Error(error) => {
+                            ui.colored_label(Color32::YELLOW, error);
+                        }
+                    }
+                    if let Some(error) = view.program_error {
+                        ui.label(format!("Fonte non dispoñible: {error}"));
+                    }
+                }
+            });
 
             // LOWER SECTION: INPUTS RACK + AUDIO MIXER
             ui.horizontal(|ui| {
@@ -1074,7 +1359,7 @@ impl eframe::App for OpenVideoMixApp {
 
                 // AUDIO MIXER (Right 25% width)
                 ui.vertical(|ui| {
-                    ui.heading("Mesturador de Son");
+                    ui.heading("Audio · sen captura");
                     ui.horizontal(|ui| {
                         // Master Bus with Peak Meter
                         ui.vertical(|ui| {
@@ -1322,5 +1607,45 @@ impl eframe::App for OpenVideoMixApp {
         let target_fps = self.mixer.settings.target_fps_value();
         let frame_interval_millis = (1000.0 / target_fps) as u64;
         ctx.request_repaint_after(Duration::from_millis(frame_interval_millis));
+    }
+}
+
+#[cfg(test)]
+mod gui_command_tests {
+    use super::*;
+    #[test]
+    fn monitoring_is_bounded_without_mutating_the_production_pixels() {
+        let rgba = vec![128; 1920 * 1080 * 4];
+        let image = monitor_image(1920, 1080, &rgba);
+        assert_eq!(image.size, [640, 360]);
+        assert_eq!(rgba.len(), 1920 * 1080 * 4);
+        assert_eq!(
+            image.pixels[0],
+            Color32::from_rgba_unmultiplied(128, 128, 128, 128)
+        );
+    }
+
+    #[test]
+    fn replayed_layout_input_does_not_cut_back_to_the_old_program() {
+        let mut gate = GuiCommandGate::default();
+        let mut mixer = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+        let destination = mixer.preview_input;
+        for _ in 0..2 {
+            if gate.allow(1.0, &ProductionCommand::Cut) {
+                dispatcher
+                    .dispatch(&mut mixer, ProductionCommand::Cut)
+                    .unwrap();
+            }
+        }
+        assert_eq!(mixer.program_input, destination);
+        assert_eq!(dispatcher.revision(), 1);
+        if gate.allow(2.0, &ProductionCommand::Cut) {
+            dispatcher
+                .dispatch(&mut mixer, ProductionCommand::Cut)
+                .unwrap();
+        }
+        assert_eq!(dispatcher.revision(), 2);
+        assert_eq!(mixer.preview_input, destination);
     }
 }

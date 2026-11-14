@@ -12,7 +12,7 @@ use openvideomix_core::{
 };
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc::{self, Receiver, SyncSender, TrySendError},
         Arc, Mutex,
     },
@@ -40,6 +40,7 @@ pub struct WorkerConfig {
     pub channel_capacity: usize,
     pub max_hold: Duration,
     pub start_delay: Duration,
+    pub input_latency: Duration,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkerError {
@@ -63,12 +64,48 @@ pub struct WorkerStats {
     pub last_output_error: Option<WorkerError>,
     pub output_queue_drops: u64,
     pub rejected_input_frames: u64,
+    pub input_channel_full_submissions: u64,
     pub last_input_error: Option<(InputId, IngressError)>,
+    pub sources: Vec<(InputId, crate::capture_output::IngressStats)>,
     pub terminal_error: Option<WorkerError>,
+}
+
+#[derive(Clone)]
+pub struct OutputIngress {
+    sender: SyncSender<(InputId, CameraFrame)>,
+    wake: thread::Thread,
+    full_submissions: Arc<AtomicU64>,
+}
+impl OutputIngress {
+    pub fn try_submit(
+        &self,
+        input: InputId,
+        frame: CameraFrame,
+    ) -> Result<(), TrySendError<(InputId, CameraFrame)>> {
+        if let Err(error) = self.sender.try_send((input, frame)) {
+            if matches!(&error, TrySendError::Full(_)) {
+                self.full_submissions.fetch_add(1, Ordering::Relaxed);
+            }
+            return Err(error);
+        }
+        self.wake.unpark();
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+pub struct OutputRouting(Arc<Mutex<(InputId, [Option<InputId>; 4])>>);
+impl OutputRouting {
+    /// Supply the already-dispatched core state; no switching business logic here.
+    pub fn set(&self, program: InputId, overlays: [Option<InputId>; 4]) {
+        *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = (program, overlays);
+    }
 }
 
 pub struct OutputWorker {
     sender: SyncSender<(InputId, CameraFrame)>,
+    routing: OutputRouting,
+    full_submissions: Arc<AtomicU64>,
     pub receiver: Receiver<ProgramPacket>,
     stop: Arc<AtomicBool>,
     stats: Arc<Mutex<WorkerStats>>,
@@ -106,6 +143,11 @@ impl OutputWorker {
         let now = capture_clock_now_ns().map_err(WorkerError::Clock)?;
         let delay = u64::try_from(config.start_delay.as_nanos())
             .map_err(|_| fail("Start delay overflow"))?;
+        u64::try_from(config.input_latency.as_nanos())
+            .map_err(|_| fail("Input latency overflow"))?;
+        if config.max_hold <= config.input_latency {
+            return Err(fail("Maximum source hold must exceed input latency"));
+        }
         let max_hold = u64::try_from(config.max_hold.as_nanos())
             .map_err(|_| fail("Source hold duration overflow"))?;
         let start = now
@@ -117,6 +159,8 @@ impl OutputWorker {
         let (packets, receiver) = mpsc::sync_channel(config.channel_capacity);
         let stop = Arc::new(AtomicBool::new(false));
         let stats = Arc::new(Mutex::new(WorkerStats::default()));
+        let routing = OutputRouting(Arc::new(Mutex::new((config.program, config.overlays))));
+        let worker_routing = routing.clone();
         let worker_stop = Arc::clone(&stop);
         let worker_stats = Arc::clone(&stats);
         let worker = thread::Builder::new()
@@ -132,6 +176,7 @@ impl OutputWorker {
                         packets: &packets,
                         stop: &worker_stop,
                         stats: &worker_stats,
+                        routing: &worker_routing,
                     },
                 );
                 if let Err(error) = result {
@@ -144,11 +189,24 @@ impl OutputWorker {
             .map_err(|error| fail(&format!("Cannot spawn output worker: {error}")))?;
         Ok(Self {
             sender,
+            routing,
+            full_submissions: Arc::new(AtomicU64::new(0)),
             receiver,
             stop,
             stats,
             thread: Some(worker),
         })
+    }
+
+    pub fn ingress(&self) -> Option<OutputIngress> {
+        Some(OutputIngress {
+            sender: self.sender.clone(),
+            wake: self.thread.as_ref()?.thread().clone(),
+            full_submissions: Arc::clone(&self.full_submissions),
+        })
+    }
+    pub fn routing(&self) -> OutputRouting {
+        self.routing.clone()
     }
 
     /// Nonblocking submission. Full/disconnected returns the owned frame for an
@@ -165,10 +223,13 @@ impl OutputWorker {
         Ok(())
     }
     pub fn stats(&self) -> WorkerStats {
-        self.stats
+        let mut stats = self
+            .stats
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
-            .clone()
+            .clone();
+        stats.input_channel_full_submissions = self.full_submissions.load(Ordering::Relaxed);
+        stats
     }
     /// Wakes a sleeping worker immediately, then joins it. No queue draining or
     /// consumer cooperation is required. A currently running CPU render completes.
@@ -191,6 +252,7 @@ struct WorkerIo<'a> {
     packets: &'a SyncSender<ProgramPacket>,
     stop: &'a AtomicBool,
     stats: &'a Mutex<WorkerStats>,
+    routing: &'a OutputRouting,
 }
 
 fn run(
@@ -205,7 +267,10 @@ fn run(
         packets,
         stop,
         stats,
+        routing,
     } = io;
+    let input_latency = u64::try_from(config.input_latency.as_nanos())
+        .map_err(|_| WorkerError::Configuration("Input latency overflow".into()))?;
     while !stop.load(Ordering::Relaxed) {
         // Limit ingress per pass so a continuously busy producer cannot starve
         // deadlines or cancellation. No channel operation blocks.
@@ -223,6 +288,15 @@ fn run(
         {
             let mut stats = stats.lock().unwrap_or_else(|poison| poison.into_inner());
             stats.rejected_input_frames += rejected;
+            stats.sources = config
+                .sources
+                .iter()
+                .filter_map(|source| {
+                    output
+                        .stats(source.input)
+                        .map(|value| (source.input, value.clone()))
+                })
+                .collect();
             if last_input_error.is_some() {
                 stats.last_input_error = last_input_error;
             }
@@ -232,12 +306,21 @@ fn run(
             .poll(now)
             .map_err(|error| WorkerError::Schedule(format!("{error:?}")))?;
         if let Some(tick) = tick {
+            let (program, overlays) = *routing
+                .0
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
             let frame = output
-                .render_at(tick.pts_ns, config.program, None, config.overlays)
+                .render_at(
+                    tick.pts_ns.saturating_sub(input_latency),
+                    program,
+                    None,
+                    overlays,
+                )
                 .map_err(WorkerError::Ingress)
                 .and_then(|frame| {
-                    let stale = std::iter::once(config.program)
-                        .chain(config.overlays.into_iter().flatten())
+                    let stale = std::iter::once(program)
+                        .chain(overlays.into_iter().flatten())
                         .find(|id| {
                             output
                                 .source_selected_pts_ns(*id)
