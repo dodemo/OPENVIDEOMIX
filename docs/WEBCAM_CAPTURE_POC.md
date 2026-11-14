@@ -6,7 +6,7 @@ Esta é unha **proba de concepto**, non unha integración de produción:
 - Recibe fotogramas reais dunha cámara predeterminada por `autovideosrc` e amósaos en **Preview**, **Program** e miniaturas da entrada nova.
 - Captura **vídeo, non audio**. Un pipeline de mostra negociado a 640×360/30 fps RGBA utilízase para limitar a memoria e o custo de copia.
 - O proceso de captura corre nun fío separado cunha cola acoutada de 3 fotogramas; descártanse fotogramas cando a UI non consegue consumilos. A GUI mostra a última textura dispoñible.
-- O botón `Engadir webcam USB (proba)` tenta abrir a cámara predeterminada do sistema. O botón `Engadir sinal sintético GStreamer` utiliza un xerador de vídeo en movemento (`videotestsrc`) que percorre exactamente o mesmo pipeline RGBA e as mesmas texturas de Preview/Program. A proba sintética **non** acredita que funcione unha cámara USB. Por agora só se admite unha captura activa; aínda non permite escoller dispositivos nin abrir varias cámaras simultaneamente.
+- O botón `Engadir webcam USB (proba)` tenta abrir a cámara predeterminada do sistema. O botón `Engadir sinal sintético GStreamer` utiliza un xerador de vídeo en movemento (`videotestsrc`) que percorre exactamente o mesmo pipeline RGBA e as mesmas texturas de Preview/Program. A proba sintética **non** acredita que funcione unha cámara USB. Agora admítense varias sesións de captura independentes, incluídas dúas ou máis fontes sintéticas. As fontes USB aínda usan `autovideosrc` e, sen selección explícita de dispositivo, poden intentar abrir a mesma webcam: **isto non demostra compatibilidade con varias webcams físicas**.
 - Os dispositivos/cámara simulados iniciais da aplicación seguen sendo marcadores de posición, sen emisión real.
 - Non hai gravación nin emisión, nin transicións GPU reais, nin captura 1080p50 garantida.
 - A interface de control PTZ e seguimento OBSBOT continúa fóra de alcance.
@@ -39,3 +39,7 @@ Sen o feature, o programa mantén a interface habitual e explica que a captura U
 - Issues #3, #6, #10
 
 **Limitación da revisión actual:** o contorno remoto usado para editar GitHub non ten un compilador Rust nin GStreamer de desenvolvemento, polo que non se executaron as probas. A PR debe permanecer en borrador ata CI e hardware real.
+
+## Validación da seguinte etapa: varias fontes
+
+A rama dependente `feat/concurrent-gstreamer-inputs` conserva unha sesión de `CameraSession` por `InputId`, non pecha unha fonte ao engadir outra e libera o seu pipeline ao eliminar a entrada. A proba `two_synthetic_sources_capture_concurrently` abre dúas fontes `videotestsrc` simultáneas, comproba fotogramas RGBA en ambas e confirma que pechar unha non detén a outra. Esta proba necesita GStreamer no CI Linux e non substitúe probas con dúas cámaras USB reais. Antes de produción deberán implementarse identificadores físicos persistentes, enumeración de modos e sincronización por timestamps.
