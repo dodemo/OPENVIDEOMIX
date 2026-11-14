@@ -1,0 +1,45 @@
+name: Production core cross-platform
+
+on:
+  pull_request:
+    paths:
+      - 'crates/core/**'
+      - 'apps/openvideomix-desktop/src/app.rs'
+      - '.github/workflows/production-core.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-core:
+    name: Core commands / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-3-dev libxkbcommon-dev libwayland-dev libasound2-dev libudev-dev
+      - name: Check new control modules formatting
+        id: formatting
+        continue-on-error: true
+        run: rustfmt --check --edition 2021 crates/core/src/commands.rs crates/core/src/midi.rs crates/core/src/vmix_compat.rs
+      - name: Core unit tests
+        run: cargo test -p openvideomix-core
+      - name: Core Clippy
+        run: cargo clippy -p openvideomix-core --all-targets -- -D warnings
+      - name: Desktop builds against shared commands
+        run: cargo check -p openvideomix-desktop
+      - name: Enforce formatting after compile and tests
+        if: always() && steps.formatting.outcome == 'failure'
+        run: exit 1
