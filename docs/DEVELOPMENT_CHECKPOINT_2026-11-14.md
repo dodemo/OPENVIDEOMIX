@@ -1,6 +1,47 @@
 # Development continuation checkpoint — 2026-11-14
 
-## Latest continuation: capture-to-Program ingress (#35)
+## Latest continuation: paced reference output worker (#36)
+
+Current branch: `feat/paced-reference-output`.
+Tested code: `dadf080cccd27c6ddbcb736455da08ffcf975ff5`.
+This checkpoint update is a subsequent documentation-only commit.
+
+Implemented exact rational `OutputSchedule` and a bounded, nonblocking CPU
+`OutputWorker` owning CaptureOutput on the shared capture-clock epoch. Late work
+skips/counts missed deadlines without phase drift. Packets preserve intended PTS,
+frame index, skipped deadlines and scheduling lateness. Explicit HoldLatest is
+required when configured source/output rates differ. Source staleness uses the
+selected frame PTS, so pending future frames cannot hide a stale image. Errors,
+rejected input, output packet drops and terminal state are observable. Stop wakes
+a sleeping worker and joins without consumer cooperation; a running CPU render
+must finish. Routes are startup configuration, not a second command architecture.
+
+Local Linux format, workspace check, all-feature/all-target Clippy and all-feature
+workspace tests pass: **84 tests** (56 core + 9 library + 3 desktop + 5 ingress +
+6 worker + 5 recording). Default workspace tests also pass. Four deterministic
+scheduler tests cover 50/1, 60000/1001, exact boundaries, missed deadlines, rewind
+and overflow. Worker tests cover queue overload, explicit conversion, bad routes,
+source staleness despite future frames, rejected ingress, clean stop during a
+one-hour wait and actual synthetic GStreamer capture feeding the shared-clock
+worker. These tiny-frame tests do not qualify sustained real-time 1080p50.
+
+Merge #35 and its dependency chains first, then retarget #36 to main and rerun
+required CI. No history rewritten; no PR merged or issue closed in this continuation.
+All previously inspected open PRs still had pending CI, with no failed completed
+conclusions observed. Re-query current heads/jobs before acting. In particular,
+macOS jobs continued to block otherwise passing dependencies.
+
+Exact next task: add an explicit timestamp/gap-aware recording API. The current
+ProgramRecorder assigns contiguous indices, while OutputWorker may skip deadlines
+or drop delivery packets. Preserve the output tick's relative video PTS and require
+real supplied PCM covering the corresponding audio interval; do not compress time,
+invent silence or silently reinterpret dropped packets as contiguous video. Add
+playable-file regressions with gaps and 48 kHz sample alignment. Integrate real
+capture/mixed audio and the production GPU Program tap before desktop RECORD.
+See `docs/PACED_REFERENCE_OUTPUT.md` for implementation limits and lifecycle.
+
+
+## Previous continuation: capture-to-Program ingress (#35)
 
 Current branch: `feat/capture-program-ingress`.
 Tested code commit: `a0b9c7dc5c173dddc7c8a3f62ae88e7b4bf5338b`.

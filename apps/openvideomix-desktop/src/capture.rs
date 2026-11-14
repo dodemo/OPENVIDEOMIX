@@ -36,6 +36,19 @@ impl CaptureTimeline {
     }
 }
 
+/// Current time in the same epoch used by CameraFrame::capture_pts_ns.
+/// This clock reading is not a measured capture/output frame rate.
+pub fn capture_clock_now_ns() -> Result<u64, String> {
+    gst::init().map_err(|error| format!("GStreamer clock initialization: {error}"))?;
+    let timeline = CaptureTimeline::shared();
+    timeline
+        .clock
+        .time()
+        .nseconds()
+        .checked_sub(timeline.epoch_ns)
+        .ok_or_else(|| "Capture clock moved before its epoch".into())
+}
+
 /// Convert through the sample segment: raw PTS need not equal running time.
 /// Missing metadata, out-of-segment PTS and arithmetic overflow stay unknown.
 fn map_capture_pts_ns(

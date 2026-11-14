@@ -6,6 +6,7 @@
 pub mod camera;
 pub mod camera_registry;
 pub mod media_timebase;
+pub mod output_schedule;
 pub mod video_profile;
 
 pub mod reference_compositor;
