@@ -1,5 +1,65 @@
 # Development continuation checkpoint — 2026-11-14
 
+## Handoff update: scope clarification pending after new audit #41
+
+Desktop PR: **[#42](https://github.com/dodemo/OPENVIDEOMIX/pull/42)**,
+branch `feat/desktop-program-output`, previously pushed head `035a547`.
+This is a documentation-only checkpoint; functional code remains d58dc08,
+99 all-feature tests passing. No later source changes or merges were made after
+reading the newly created audit #41. All earlier native evidence remains valid.
+
+New owner-authored #38/#40/#41 and closed #39 were read. #39 is a rejected,
+separately billed API pilot: never activate/reopen it. #40 is feasibility only,
+not authorization to run Antigravity; none was run. #41 explicitly requests a
+read-only audit, no feature implementation/merges/expensive builds, and a next
+task proposed but not automatically started. This differs from the standing
+continuation goal in this thread. A concise scope question was sent in this
+thread: continue the authorized development, or switch to read-only #41 and
+pause changes. **No reply had arrived at this checkpoint. Do not treat elapsed
+time as approval or let a scheduled continuation bypass this pending question.**
+Read-only inspection and preserving the already authorized work/checkpoint are
+safe. Resume source/merge/build work only once the thread clarifies the scope;
+if audit is chosen, do not automatically start the proposed implementation.
+
+The completed Galician audit is published at
+https://github.com/dodemo/OPENVIDEOMIX/issues/41#issuecomment-6882873095 .
+It distinguishes main/PR/demo/unverified capabilities, current merge order,
+platform CI limits, license/architecture alternatives, measured evidence and
+one proposed GPU Program milestone. It recommends retaining Rust/GStreamer,
+with an independent GPU compositor still provisional and no libobs integration
+without an explicit GPL/distribution decision. No new paid services, API keys,
+LLM API calls, agents or workflows were configured.
+
+Latest read-only CI query: #25 exact head `20e2829` and #32 `a831133` have all
+listed workflows completed successfully; no merge was performed while scope is
+pending. #35 is conflicting with its updated #32 base and needs normal integration
+later. #42 at `035a547` has incomplete required CI; no failed completed workflow
+was observed. Re-query current heads/checks before any later action.
+
+Additional bounded measurement, before the read-only clarification: isolated
+non-live videotestsrc RGBA 1920×1080 50/1 → videoconvert → vp8enc deadline=1,
+cpu-used=8, threads=4 → fakesink sync=false, 100 frames each: SMPTE 48.07 fps,
+red 50.49, checkers-8 43.85. Results retained in
+`docs/evidence/desktop-program-2026-11-14/encoder-isolation.json`.
+This includes generation/conversion/startup and is offline video-only, not a
+controlled sustained broadcast benchmark. It suggests resource/copy contention
+in the complete app but does not identify a dominant cost or prove GPU/encoder
+interoperability. Do not infer a rewrite or a 50 fps pass from this measurement.
+
+Current attached workspace: `/workspace/work/recording`; local Rust/GStreamer
+header/runtime environment can be restored with `. /workspace/work/env.sh`.
+Detailed successful logs are `/workspace/work/desktop-final-{check,clippy,tests}.log`.
+Each review worktree uses its own Cargo target directory. No physical devices or
+hardware acceleration are available. Do not share Cargo target directories across
+worktrees: prior stale artifacts caused false missing-module errors.
+
+At clean handoff, verify c32fe5994e175f6df823570d9a9294db8fcde3a6 is still this
+run's owned continuation-lock target and release only that ref after pushing this
+checkpoint. Future continuations must check the scope question first; while it is
+pending, make no repository/code changes and do not repeat broad experiments.
+The single existing native automation remains enabled; no additional automation
+was created and no completion claim was made.
+
 ## Latest continuation: desktop actual Program and test-tone recording
 
 Active source branch: `feat/desktop-program-output`.

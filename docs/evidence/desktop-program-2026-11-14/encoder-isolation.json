@@ -1,0 +1,23 @@
+{
+  "qualification": "isolated non-live video encoder + generated source/conversion; no audio, GUI or real-time qualification",
+  "results": [
+    {
+      "pattern": "smpte",
+      "frames": 100,
+      "elapsed_seconds": 2.0801611710012367,
+      "offline_fps": 48.07319807429506
+    },
+    {
+      "pattern": "red",
+      "frames": 100,
+      "elapsed_seconds": 1.9805593870005396,
+      "offline_fps": 50.49078591450121
+    },
+    {
+      "pattern": "checkers-8",
+      "frames": 100,
+      "elapsed_seconds": 2.280641460998595,
+      "offline_fps": 43.847313008250886
+    }
+  ]
+}
