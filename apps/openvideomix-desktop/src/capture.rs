@@ -14,6 +14,8 @@ use std::thread::{self, JoinHandle};
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
+use gstreamer_video as gst_video;
+use gst_video::prelude::*;
 
 pub struct CameraFrame {
     pub width: usize,
@@ -117,41 +119,35 @@ fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool, source: &str
         let Some(caps) = sample.caps() else {
             continue;
         };
-        let Some(structure) = caps.structure(0) else {
+        let Ok(info) = gst_video::VideoInfo::from_caps(caps) else {
             continue;
         };
-        let Ok(width) = structure.get::<i32>("width") else {
+        if info.format() != gst_video::VideoFormat::Rgba {
             continue;
-        };
-        let Ok(height) = structure.get::<i32>("height") else {
-            continue;
-        };
-        if width <= 0 || height <= 0 {
+        }
+        let width = info.width() as usize;
+        let height = info.height() as usize;
+        if width == 0 || height == 0 {
             continue;
         }
         let Some(buffer) = sample.buffer() else {
             continue;
         };
-        let Ok(map) = buffer.map_readable() else {
+        let Ok(video_frame) = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info) else {
             continue;
         };
-        let Some(bytes) = (width as usize)
-            .checked_mul(height as usize)
-            .and_then(|n| n.checked_mul(4))
-        else {
+        let Ok(plane) = video_frame.plane_data(0) else {
             continue;
         };
-        // This PoC negotiates RGBA; reject any unexpectedly sized buffers
-        // instead of showing corrupted imagery. Row strides require a
-        // video-frame mapping before supporting arbitrary source layouts.
-        if map.as_slice().len() != bytes {
+        let stride = video_frame.plane_stride()[0];
+        let Some(rgba) = copy_packed_rgba(plane, width, height, stride) else {
             continue;
-        }
+        };
 
         match sender.try_send(CameraEvent::Frame(CameraFrame {
-            width: width as usize,
-            height: height as usize,
-            rgba: map.as_slice().to_vec(),
+            width,
+            height,
+            rgba,
         })) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => break Ok(()),
@@ -162,10 +158,53 @@ fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool, source: &str
     result
 }
 
+/// Copy an RGBA frame row by row, ignoring padding bytes and rejecting any
+/// malformed or negative video stride rather than exposing corrupt pixels.
+fn copy_packed_rgba(data: &[u8], width: usize, height: usize, stride: i32) -> Option<Vec<u8>> {
+    let row_bytes = width.checked_mul(4)?;
+    let stride = usize::try_from(stride).ok()?;
+    if row_bytes == 0 || height == 0 || stride < row_bytes {
+        return None;
+    }
+    let final_row = stride.checked_mul(height.checked_sub(1)?)?;
+    let minimum_size = final_row.checked_add(row_bytes)?;
+    if data.len() < minimum_size {
+        return None;
+    }
+    let mut pixels = vec![0; row_bytes.checked_mul(height)?];
+    for (row, output) in pixels.chunks_exact_mut(row_bytes).enumerate() {
+        let start = row.checked_mul(stride)?;
+        output.copy_from_slice(&data[start..start + row_bytes]);
+    }
+    Some(pixels)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn packed_rgba_handles_row_padding_and_rejects_bad_strides() {
+        let padded = [1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16];
+        assert_eq!(
+            copy_packed_rgba(&padded, 2, 2, 10),
+            None,
+            "A última fila incompleta non se debe interpretar como válida"
+        );
+        let padded = [1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16];
+        assert_eq!(
+            copy_packed_rgba(&padded, 2, 2, 10),
+            None
+        );
+        let padded = [1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16, 0, 0];
+        assert_eq!(
+            copy_packed_rgba(&padded, 2, 2, 10),
+            Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
+        );
+        assert!(copy_packed_rgba(&padded, 2, 2, -1).is_none());
+        assert!(copy_packed_rgba(&padded, 2, 2, 7).is_none());
+    }
 
     #[test]
     fn synthetic_video_produces_real_rgba_frames() {
