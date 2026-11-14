@@ -1,0 +1,85 @@
+{
+  "Name": "OPENVIDEOMIX",
+  "Author": "OPENVIDEOMIX contributors",
+  "Version": "0.1.0",
+  "Category": "Live Production",
+  "Icon": "icon",
+  "CategoryIcon": "icon",
+  "PropertyInspectorPath": null,
+  "OS": [
+    {
+      "Platform": "windows"
+    },
+    {
+      "Platform": "mac"
+    },
+    {
+      "Platform": "linux"
+    }
+  ],
+  "CodePaths": {
+    "x86_64-pc-windows-msvc": "openvideomix-opendeck-x86_64-pc-windows-msvc.exe",
+    "x86_64-apple-darwin": "openvideomix-opendeck-x86_64-apple-darwin",
+    "aarch64-apple-darwin": "openvideomix-opendeck-aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu": "openvideomix-opendeck-x86_64-unknown-linux-gnu"
+  },
+  "CodePathWin": "openvideomix-opendeck-x86_64-pc-windows-msvc.exe",
+  "CodePathMac": "openvideomix-opendeck-aarch64-apple-darwin",
+  "CodePathLin": "openvideomix-opendeck-x86_64-unknown-linux-gnu",
+  "Actions": [
+    {
+      "UUID": "com.openvideomix.control.cut",
+      "Name": "CUT",
+      "Tooltip": "Take Preview into Program immediately",
+      "Icon": "icon",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": null,
+      "States": [
+        {
+          "Title": "CUT",
+          "FontSize": "16",
+          "ShowTitle": true
+        }
+      ]
+    },
+    {
+      "UUID": "com.openvideomix.control.preview",
+      "Name": "Select Preview",
+      "Tooltip": "Select a source as Preview",
+      "Icon": "icon",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/input.html",
+      "States": [
+        {
+          "Title": "PREVIEW",
+          "FontSize": "14",
+          "ShowTitle": true
+        }
+      ]
+    },
+    {
+      "UUID": "com.openvideomix.control.overlay1",
+      "Name": "Toggle Overlay 1",
+      "Tooltip": "Toggle source as Overlay 1",
+      "Icon": "icon",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/input.html",
+      "States": [
+        {
+          "Title": "OV1",
+          "FontSize": "16",
+          "ShowTitle": true
+        }
+      ]
+    }
+  ]
+}
