@@ -84,3 +84,15 @@ Descrición breve e clara da función ou corrección que se quere acadar.
 3. **Reprodución de Vídeo MP4/MKV**: Reprodución de clips de vídeo con son integrado e bucle.
 4. **Motor de Son Real**: Lectura do micrófono analóxico/USB con vúmetros de decibelios reais (dBFS).
 5. **Gravación e Streaming (Outputs)**: Saída RTMP cara a servidores locais/YouTube e saída de Cámara Virtual (`v4l2loopback`).
+
+---
+
+## 6. Norma obrigatoria: superficies de control externo
+
+OPENVIDEOMIX debe soportar **Stream Deck/OpenDeck e controladores USB MIDI**, en Windows, Linux e macOS. Ver issues [#13](https://github.com/dodemo/OPENVIDEOMIX/issues/13) e [#14](https://github.com/dodemo/OPENVIDEOMIX/issues/14).
+
+- **Referencia de produto:** ante dúbidas, imitar primeiro as funcións e a ergonomía de vMix; OBS é a referencia secundaria. Non copiar recursos gráficos ou marca alleos.
+- **Stream Deck:** dar prioridade a un complemento OpenAction/Stream Deck SDK compatible con [OpenDeck](https://github.com/nekename/OpenDeck), como aplicación anfitrioa autónoma. Non copiar nin vincular código GPL de OpenDeck á aplicación MIT sen revisión de licenzas.
+- **MIDI:** incluír controladores estándar mediante un backend multiplataforma (candidato `midir`); MIDI Learn, botóns Note/CC, potenciómetros, faders, mapeos persistentes, soft takeover e reconexión. O Mingzhe B0FV93GS5Z é un dispositivo de destino; o seu protocolo e identificadores non están verificados con hardware.
+- **Arquitectura:** GUI, teclado, OpenDeck, MIDI e API de rede executan exactamente as mesmas ordes tipadas sobre o núcleo; estado de tally, audio e gravación/streaming emítese por eventos. A API remota require autenticación, control de orixe e opción explícita de exposición LAN. Non bloquear os fíos en tempo real.
+- **Calidade:** probas sen hardware con controladores simulados, probas físicas posteriores, indicadores accesibles sen depender só da cor, control de permisos, detección de desconexión, perfís e documentación de plataformas.
