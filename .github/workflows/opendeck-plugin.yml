@@ -1,0 +1,59 @@
+name: OpenAction plugin cross-platform
+
+on:
+  pull_request:
+    paths:
+      - 'apps/openvideomix-opendeck/**'
+      - '.github/workflows/opendeck-plugin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  plugin:
+    name: OpenAction plugin / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/openvideomix-opendeck
+      - name: Check manifest assets
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('apps/openvideomix-opendeck/assets/com.openvideomix.control.sdPlugin')
+          manifest=json.loads((p/'manifest.json').read_text())
+          assert all(a['UUID'].startswith('com.openvideomix.control.') for a in manifest['Actions'])
+          assert len({a['UUID'] for a in manifest['Actions']}) == len(manifest['Actions'])
+          assert (p/(manifest['Icon']+'.svg')).exists()
+          for action in manifest['Actions']:
+              assert (p/(action['Icon']+'.svg')).exists()
+              inspector=action.get('PropertyInspectorPath')
+              if inspector:
+                  assert (p/inspector).exists()
+          print('Manifest paths and action UUIDs validated')
+          PY
+      - name: Check Rust formatting
+        id: formatting
+        continue-on-error: true
+        run: cargo fmt --manifest-path apps/openvideomix-opendeck/Cargo.toml -- --check
+      - name: Compile plugin
+        run: cargo check --manifest-path apps/openvideomix-opendeck/Cargo.toml
+      - name: Test plugin crate
+        run: cargo test --manifest-path apps/openvideomix-opendeck/Cargo.toml
+      - name: Lint plugin
+        run: cargo clippy --manifest-path apps/openvideomix-opendeck/Cargo.toml --all-targets -- -D warnings
+      - name: Require formatting
+        if: always() && steps.formatting.outcome == 'failure'
+        shell: bash
+        run: exit 1
