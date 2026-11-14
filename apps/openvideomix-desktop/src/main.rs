@@ -1,4 +1,6 @@
 mod app;
+#[cfg(feature = "gstreamer-capture")]
+mod capture;
 
 use app::OpenVideoMixApp;
 
