@@ -21,7 +21,7 @@ Estado a 14 de novembro de 2026. Prioridade: realización nativa con ergonomía 
 
 ## Motor de realización audiovisual
 
-- [ ] Reloj mestre PTS, colas acoutadas, sincronización, deriva, FPS real e latencia medida.
+- [ ] Reloxo mestre PTS, colas acoutadas, sincronización, deriva, FPS real e latencia medida.
 - [ ] Compositor GPU independente de egui e conectado á saída: CUT, FADE, WIPE, T-Bar, overlays 1–4, despois Stinger e MERGE.
 - [ ] Audio de 48 kHz, gain/mute, AFV, buses Master/A/B, PFL, vúmetros dBFS reais e sincronización A/V.
 - [ ] Saída audiovisual común: gravación reproducible e RTMP real; despois SRT e cámara virtual.
