@@ -23,6 +23,7 @@ serde_json = { workspace = true, optional = true }
 
 [features]
 default = []
+gstreamer-recording = ["dep:gstreamer", "dep:gstreamer-app"]
 local-control-api = ["dep:axum", "dep:serde", "dep:subtle"]
 midi-input = ["dep:midir", "dep:serde_json"]
 gstreamer-capture = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
@@ -57,3 +58,7 @@ optional = true
 [dependencies.gstreamer-video]
 version = "0.24"
 optional = true
+
+[[example]]
+name = "record_program"
+required-features = ["gstreamer-recording"]

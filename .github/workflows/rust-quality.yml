@@ -65,3 +65,9 @@ jobs:
         run: cargo test -p openvideomix-desktop --features gstreamer-capture
       - name: Clippy capture feature
         run: cargo clippy -p openvideomix-desktop --all-targets --features gstreamer-capture -- -D warnings
+      - name: Headless Program recording round trip (CPU reference and generated PCM)
+        run: cargo test -p openvideomix-desktop --features gstreamer-recording
+      - name: Check all optional adapters and recording together
+        run: cargo check --workspace --all-features
+      - name: Clippy all optional adapters and recording
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
