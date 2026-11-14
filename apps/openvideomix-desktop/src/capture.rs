@@ -298,7 +298,9 @@ mod tests {
         while observed < 5 && Instant::now() < deadline {
             match session.receiver.recv_timeout(Duration::from_millis(250)) {
                 Ok(CameraEvent::Frame(frame)) => {
-                    let pts = frame.pts_ns.expect("videotestsrc should provide a source PTS");
+                    let pts = frame
+                        .pts_ns
+                        .expect("videotestsrc should provide a source PTS");
                     if let Some(previous) = last_pts {
                         assert!(pts > previous, "source timestamps must be monotonic");
                     }
