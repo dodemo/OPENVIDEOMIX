@@ -216,6 +216,44 @@ mod tests {
     }
 
     #[test]
+    fn two_synthetic_sources_capture_concurrently() {
+        // Two independent pipelines simulate distinct video inputs without
+        // taking ownership of a physical webcam.
+        let first = CameraSession::start_synthetic();
+        let second = CameraSession::start_synthetic();
+
+        for session in [&first, &second] {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            let mut received = false;
+            while Instant::now() < deadline {
+                match session.receiver.recv_timeout(Duration::from_millis(250)) {
+                    Ok(CameraEvent::Frame(frame)) => {
+                        received = frame.width == 640
+                            && frame.height == 360
+                            && frame.rgba.len() == 640 * 360 * 4;
+                        if received {
+                            break;
+                        }
+                    }
+                    Ok(CameraEvent::Error(message)) => {
+                        panic!("Concurrent synthetic video source failed: {message}")
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                }
+            }
+            assert!(received, "An independently launched pipeline did not send video");
+        }
+        // Shutting down one source must not prevent the other receiving video.
+        drop(first);
+        match second.receiver.recv_timeout(Duration::from_secs(3)) {
+            Ok(CameraEvent::Frame(frame)) => assert_eq!(frame.rgba.len(), 640 * 360 * 4),
+            Ok(CameraEvent::Error(message)) => panic!("Second pipeline failed: {message}"),
+            Err(error) => panic!("Second pipeline stopped with first: {error}"),
+        }
+    }
+
+    #[test]
     fn synthetic_video_produces_real_rgba_frames() {
         // No physical device required. This needs GStreamer base plugins.
         let (tx, rx) = mpsc::sync_channel(3);
