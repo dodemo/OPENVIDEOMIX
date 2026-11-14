@@ -80,12 +80,7 @@ impl FrameQueue {
     ///
     /// Request times are monotonic, just like an actual output schedule.
     pub fn frame_at(&mut self, target_ns: u64) -> Result<Option<&RgbaFrame>, FrameQueueError> {
-        if self
-            .last_target_ns
-            .is_some_and(|previous| target_ns < previous)
-        {
-            return Err(FrameQueueError::NonMonotonicOutput);
-        }
+        self.peek_at(target_ns)?;
         self.last_target_ns = Some(target_ns);
         while self
             .pending
@@ -95,6 +90,24 @@ impl FrameQueue {
             self.last = self.pending.pop_front();
         }
         Ok(self.last.as_ref().map(|frame| &frame.rgba))
+    }
+
+    /// Inspect a candidate without consuming it or committing an output time.
+    /// Failed multi-source renders must leave every queue unchanged.
+    fn peek_at(&self, target_ns: u64) -> Result<Option<&RgbaFrame>, FrameQueueError> {
+        if self
+            .last_target_ns
+            .is_some_and(|previous| target_ns < previous)
+        {
+            return Err(FrameQueueError::NonMonotonicOutput);
+        }
+        Ok(self
+            .pending
+            .iter()
+            .rev()
+            .find(|frame| frame.pts_ns <= target_ns)
+            .or(self.last.as_ref())
+            .map(|frame| &frame.rgba))
     }
 
     pub fn dropped_frames(&self) -> u64 {
@@ -134,6 +147,7 @@ pub struct ReferenceTake {
 #[derive(Debug, Default)]
 pub struct ReferenceOutput {
     sources: HashMap<InputId, FrameQueue>,
+    last_rendered_pts_ns: Option<u64>,
 }
 
 impl ReferenceOutput {
@@ -155,12 +169,11 @@ impl ReferenceOutput {
         Ok(())
     }
 
-    fn sample(&mut self, input: InputId, pts_ns: u64) -> Result<RgbaFrame, RenderError> {
+    fn sample(&self, input: InputId, pts_ns: u64) -> Result<&RgbaFrame, RenderError> {
         self.sources
-            .get_mut(&input)
+            .get(&input)
             .ok_or(RenderError::UnknownInput(input))?
-            .frame_at(pts_ns)?
-            .cloned()
+            .peek_at(pts_ns)?
             .ok_or(RenderError::UnavailableFrame(input))
     }
 
@@ -168,6 +181,8 @@ impl ReferenceOutput {
     ///
     /// Overlay array order is OV1 -> OV4, with OV4 composited last.
     /// Missing frames are explicit errors; never substitute another camera.
+    /// Errors do not consume frames or advance any playout cursor. Successful
+    /// render times remain monotonic even when Program or overlays change.
     pub fn render_at(
         &mut self,
         output_pts_ns: u64,
@@ -175,6 +190,12 @@ impl ReferenceOutput {
         take: Option<ReferenceTake>,
         overlay_inputs: [Option<InputId>; 4],
     ) -> Result<RgbaFrame, RenderError> {
+        if self
+            .last_rendered_pts_ns
+            .is_some_and(|previous| output_pts_ns < previous)
+        {
+            return Err(FrameQueueError::NonMonotonicOutput.into());
+        }
         // Reject invalid progress before dequeuing any source frames.
         // Invalid control input must not advance a source's playout cursor.
         if let Some(take) = take {
@@ -186,19 +207,31 @@ impl ReferenceOutput {
         let background = match take {
             Some(take) => {
                 let destination = self.sample(take.destination, output_pts_ns)?;
-                transition(&program_frame, &destination, take.transition, take.progress)?
+                transition(program_frame, destination, take.transition, take.progress)?
             }
-            None => program_frame,
+            None => program_frame.clone(),
         };
 
-        let mut frames: [Option<RgbaFrame>; 4] = [None, None, None, None];
+        let mut frames: [Option<&RgbaFrame>; 4] = [None, None, None, None];
         for (slot, input) in overlay_inputs.into_iter().enumerate() {
             if let Some(id) = input {
                 frames[slot] = Some(self.sample(id, output_pts_ns)?);
             }
         }
-        let refs = frames.each_ref().map(Option::as_ref);
-        Ok(overlay_stack(&background, &refs)?)
+        let composed = overlay_stack(&background, &frames)?;
+        // Commit only after all source lookups and pixel composition succeed.
+        // Repeated IDs are safe: frame_at permits the same timestamp twice.
+        for id in std::iter::once(program)
+            .chain(take.map(|take| take.destination))
+            .chain(overlay_inputs.into_iter().flatten())
+        {
+            self.sources
+                .get_mut(&id)
+                .ok_or(RenderError::UnknownInput(id))?
+                .frame_at(output_pts_ns)?;
+        }
+        self.last_rendered_pts_ns = Some(output_pts_ns);
+        Ok(composed)
     }
 }
 
@@ -333,5 +366,55 @@ mod tests {
             ),
             Err(RenderError::Composite(CompositeError::InvalidProgress))
         );
+    }
+    #[test]
+    fn failed_render_does_not_consume_frames_or_advance_playout() {
+        for failure in 0..3 {
+            let mut output = ReferenceOutput::default();
+            output.add_source(1, 3).unwrap();
+            output.add_source(2, 3).unwrap();
+            output.push(1, frame(0, [10, 0, 0, 255])).unwrap();
+            output.push(1, frame(20, [20, 0, 0, 255])).unwrap();
+            let overlays = match failure {
+                0 => [Some(99), None, None, None],
+                1 => [Some(2), None, None, None],
+                _ => {
+                    output
+                        .push(
+                            2,
+                            TimedFrame {
+                                pts_ns: 0,
+                                rgba: RgbaFrame::solid(1, 1, [0, 0, 0, 255]).unwrap(),
+                            },
+                        )
+                        .unwrap();
+                    [Some(2), None, None, None]
+                }
+            };
+            assert!(output.render_at(20, 1, None, overlays).is_err());
+            let recovered = output.render_at(0, 1, None, [None; 4]).unwrap();
+            assert_eq!(recovered.pixels[0], 10);
+            output.push(1, frame(40, [40, 0, 0, 255])).unwrap();
+            assert_eq!(
+                output.render_at(20, 1, None, [None; 4]).unwrap().pixels[0],
+                20
+            );
+        }
+    }
+
+    #[test]
+    fn output_timeline_cannot_rewind_when_switching_sources() {
+        let mut output = ReferenceOutput::default();
+        for id in [1, 2] {
+            output.add_source(id, 3).unwrap();
+            output.push(id, frame(0, [0, 0, 0, 255])).unwrap();
+        }
+        output.render_at(20, 1, None, [None; 4]).unwrap();
+        assert_eq!(
+            output.render_at(10, 2, None, [None; 4]),
+            Err(RenderError::Queue(FrameQueueError::NonMonotonicOutput))
+        );
+        // Re-rendering the same output PTS is allowed.
+        assert!(output.render_at(20, 2, None, [None; 4]).is_ok());
     }
 }
