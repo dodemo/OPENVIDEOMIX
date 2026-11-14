@@ -103,10 +103,12 @@ def work_branch() -> tuple[bool, str]:
     code, changes = capture(["git", "status", "--porcelain"])
     if code != 0 or changes.strip():
         return False, "Main has uncommitted changes: refusing to switch"
-    code, _ = capture(["git", "switch", "-c", BRANCH])
+    code, _ = capture(["git", "show-ref", "--verify", "--quiet", f"refs/heads/{BRANCH}"])
+    command = ["git", "switch", BRANCH] if code == 0 else ["git", "switch", "-c", BRANCH]
+    code, _ = capture(command)
     if code != 0:
-        return False, "Cannot create local feature branch; inspect without resetting it"
-    return True, "Created Windows Alpha feature branch"
+        return False, "Cannot select the local Alpha branch safely; no changes discarded"
+    return True, "Resumed or created the Windows Alpha feature branch"
 
 
 def media_ready() -> tuple[bool, str]:
