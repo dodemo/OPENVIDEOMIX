@@ -1,0 +1,38 @@
+name: Reference RGBA compositor
+
+on:
+  pull_request:
+    paths:
+      - 'crates/core/src/reference_compositor.rs'
+      - 'crates/core/src/lib.rs'
+      - '.github/workflows/reference-compositor.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pixels:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        id: rustfmt
+        continue-on-error: true
+        run: rustfmt --check --edition 2021 crates/core/src/reference_compositor.rs
+      - name: Test exact pixel composition
+        run: cargo test -p openvideomix-core reference_compositor
+      - name: Clippy
+        run: cargo clippy -p openvideomix-core --all-targets -- -D warnings
+      - name: Enforce formatting
+        if: always() && steps.rustfmt.outcome == 'failure'
+        shell: bash
+        run: exit 1
