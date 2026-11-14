@@ -30,7 +30,7 @@ Os indicadores de demostración da interface non acreditan cadencia de saída. O
 
 ## Probas de vídeo en desenvolvemento
 
-A [PR #22](https://github.com/dodemo/OPENVIDEOMIX/pull/22), xa integrada en `main`, introduce unha primeira ruta opt-in de captura USB predeterminada e vídeo sintético mediante GStreamer, presentados como texturas na GUI. A [PR #23](https://github.com/dodemo/OPENVIDEOMIX/pull/23) tamén está integrada en `main`: incorpora sesións independentes e probas con fontes sintéticas. Esta rama conecta catro sinais de proba co Program e a gravación; as PR encadeadas deben completar a súa integración antes de describir toda a ruta como dispoñible en `main`.
+A [PR #22](https://github.com/dodemo/OPENVIDEOMIX/pull/22), xa integrada en `main`, introduce unha primeira ruta opt-in de captura USB predeterminada e vídeo sintético mediante GStreamer, presentados como texturas na GUI. A [PR #23](https://github.com/dodemo/OPENVIDEOMIX/pull/23) tamén está integrada en `main`: incorpora sesións independentes e probas con fontes sintéticas. O código desta rama conecta catro sinais de proba co Program e a gravación. A [issue #43](https://github.com/dodemo/OPENVIDEOMIX/issues/43) conserva a orde de integración da cadea #25 → #34, #32 → #35 → #36 → #37 → #42, os heads verificados e as evidencias de CI; integrar esa cadea non cualifica o prototipo para produción.
 
 Ningunha destas probas garante aínda selección individual de varias webcams físicas, 1080p50, sincronización A/V nin rendemento de produción. A compatibilidade coa OBSBOT Tiny 2 está prevista, non validada sobre hardware real.
 
