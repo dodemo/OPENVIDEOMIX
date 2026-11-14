@@ -242,7 +242,10 @@ mod tests {
                     Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 }
             }
-            assert!(received, "An independently launched pipeline did not send video");
+            assert!(
+                received,
+                "An independently launched pipeline did not send video"
+            );
         }
         // Shutting down one source must not prevent the other receiving video.
         drop(first);
