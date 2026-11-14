@@ -19,3 +19,19 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true
+
+[features]
+default = []
+gstreamer-capture = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
+
+[dependencies.gstreamer]
+version = "0.24"
+optional = true
+
+[dependencies.gstreamer-app]
+version = "0.24"
+optional = true
+
+[dependencies.gstreamer-video]
+version = "0.24"
+optional = true
