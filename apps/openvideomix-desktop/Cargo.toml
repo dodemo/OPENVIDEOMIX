@@ -23,6 +23,7 @@ chrono.workspace = true
 [features]
 default = []
 local-control-api = ["dep:axum", "dep:serde", "dep:subtle"]
+gstreamer-capture = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
 
 [dependencies.axum]
 version = "0.8"
@@ -34,6 +35,18 @@ optional = true
 
 [dependencies.subtle]
 version = "2"
+optional = true
+
+[dependencies.gstreamer]
+version = "0.24"
+optional = true
+
+[dependencies.gstreamer-app]
+version = "0.24"
+optional = true
+
+[dependencies.gstreamer-video]
+version = "0.24"
 optional = true
 
 [dev-dependencies]
