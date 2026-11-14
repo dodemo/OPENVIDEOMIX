@@ -7,7 +7,7 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{self, Receiver, SyncSender, TrySendError},
-    Arc,
+    Arc, OnceLock,
 };
 use std::thread::{self, JoinHandle};
 
@@ -17,6 +17,50 @@ use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
 
+/// Every capture pipeline explicitly uses the same system clock and epoch.
+/// This maps pipeline-local running time; it does not discipline device clocks
+/// or measure the physical exposure time of a camera frame.
+struct CaptureTimeline {
+    clock: gst::Clock,
+    epoch_ns: u64,
+}
+
+impl CaptureTimeline {
+    fn shared() -> &'static Self {
+        static TIMELINE: OnceLock<CaptureTimeline> = OnceLock::new();
+        TIMELINE.get_or_init(|| {
+            let clock = gst::SystemClock::obtain();
+            let epoch_ns = clock.time().nseconds();
+            Self { clock, epoch_ns }
+        })
+    }
+}
+
+/// Convert through the sample segment: raw PTS need not equal running time.
+/// Missing metadata, out-of-segment PTS and arithmetic overflow stay unknown.
+fn map_capture_pts_ns(
+    pts: Option<gst::ClockTime>,
+    segment: Option<&gst::Segment>,
+    base_time: Option<gst::ClockTime>,
+    epoch_ns: u64,
+) -> Option<u64> {
+    let running = segment?
+        .downcast_ref::<gst::ClockTime>()?
+        .to_running_time(pts?)?;
+    base_time?
+        .nseconds()
+        .checked_add(running.nseconds())?
+        .checked_sub(epoch_ns)
+}
+
+/// Always return an active pipeline to NULL, including startup/error exits.
+struct CapturePipeline(gst::Pipeline);
+impl Drop for CapturePipeline {
+    fn drop(&mut self) {
+        let _ = self.0.set_state(gst::State::Null);
+    }
+}
+
 pub struct CameraFrame {
     pub width: usize,
     pub height: usize,
@@ -24,6 +68,9 @@ pub struct CameraFrame {
     /// GStreamer buffer PTS; relative to the source pipeline timebase.
     /// None when the capture backend does not provide timestamps.
     pub pts_ns: Option<u64>,
+    /// Segment-adjusted presentation time in the shared capture-clock epoch.
+    /// Not a measured physical capture time, output FPS or drift correction.
+    pub capture_pts_ns: Option<u64>,
     /// Advertised buffer duration, not a measured end-to-end frame period.
     pub duration_ns: Option<u64>,
 }
@@ -92,6 +139,7 @@ fn run_capture(
     source: &str,
 ) -> Result<(), String> {
     gst::init().map_err(|e| format!("GStreamer: {e}"))?;
+    let timeline = CaptureTimeline::shared();
 
     // A conservative working format is used until device capability
     // enumeration and hardware-dependent negotiation are implemented.
@@ -107,6 +155,9 @@ fn run_capture(
     let pipeline = element
         .dynamic_cast::<gst::Pipeline>()
         .map_err(|_| "O pipeline de captura non e unha Pipeline".to_string())?;
+    let guard = CapturePipeline(pipeline);
+    let pipeline = &guard.0;
+    pipeline.use_clock(Some(&timeline.clock));
     let sink = pipeline
         .by_name("framesink")
         .and_then(|element| element.dynamic_cast::<gst_app::AppSink>().ok())
@@ -120,7 +171,7 @@ fn run_capture(
         .bus()
         .ok_or_else(|| "Pipeline sen bus de mensaxes".to_string())?;
 
-    let result = loop {
+    loop {
         if stop.load(Ordering::Relaxed) {
             break Ok(());
         }
@@ -176,20 +227,24 @@ fn run_capture(
 
         let pts_ns = buffer.pts().map(|time| time.nseconds());
         let duration_ns = buffer.duration().map(|time| time.nseconds());
+        let capture_pts_ns = map_capture_pts_ns(
+            buffer.pts(),
+            sample.segment(),
+            pipeline.base_time(),
+            timeline.epoch_ns,
+        );
         match sender.try_send(CameraEvent::Frame(CameraFrame {
             width,
             height,
             rgba,
             pts_ns,
+            capture_pts_ns,
             duration_ns,
         })) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => break Ok(()),
         }
-    };
-
-    let _ = pipeline.set_state(gst::State::Null);
-    result
+    }
 }
 
 /// Copy an RGBA frame row by row, ignoring padding bytes and rejecting any
@@ -217,6 +272,80 @@ fn copy_packed_rgba(data: &[u8], width: usize, height: usize, stride: i32) -> Op
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn shared_timestamp_mapping_respects_segment_and_checked_arithmetic() {
+        gst::init().unwrap();
+        let mut segment = gst::FormattedSegment::<gst::ClockTime>::new();
+        segment.set_start(gst::ClockTime::from_seconds(1));
+        segment.set_base(gst::ClockTime::from_seconds(2));
+        let pts = Some(gst::ClockTime::from_mseconds(1500));
+        let base = Some(gst::ClockTime::from_seconds(10));
+        assert_eq!(
+            map_capture_pts_ns(pts, Some(segment.upcast_ref()), base, 9_000_000_000),
+            Some(3_500_000_000)
+        );
+        assert_eq!(
+            map_capture_pts_ns(None, Some(segment.upcast_ref()), base, 0),
+            None
+        );
+        assert_eq!(map_capture_pts_ns(pts, None, base, 0), None);
+        assert_eq!(
+            map_capture_pts_ns(pts, Some(segment.upcast_ref()), None, 0),
+            None
+        );
+        assert_eq!(
+            map_capture_pts_ns(
+                Some(gst::ClockTime::ZERO),
+                Some(segment.upcast_ref()),
+                base,
+                0
+            ),
+            None
+        );
+        assert_eq!(
+            map_capture_pts_ns(pts, Some(segment.upcast_ref()), base, u64::MAX),
+            None
+        );
+        assert_eq!(
+            map_capture_pts_ns(
+                pts,
+                Some(segment.upcast_ref()),
+                Some(gst::ClockTime::from_nseconds(u64::MAX - 1)),
+                0
+            ),
+            None
+        );
+    }
+
+    fn receive_frame(session: &CameraSession) -> CameraFrame {
+        match session.receiver.recv_timeout(Duration::from_secs(5)) {
+            Ok(CameraEvent::Frame(frame)) => frame,
+            Ok(CameraEvent::Error(message)) => panic!("Synthetic source failed: {message}"),
+            Err(error) => panic!("No synthetic frame: {error}"),
+        }
+    }
+
+    #[test]
+    fn staggered_sources_preserve_start_offset_on_shared_timeline() {
+        let first = CameraSession::start_synthetic();
+        let first_frame = receive_frame(&first);
+        let before_second = CaptureTimeline::shared().clock.time().nseconds();
+        // A later session must retain its actual pipeline start offset;
+        // independently subtracting each source's first PTS would erase it.
+        let second = CameraSession::start_synthetic();
+        let second_frame = receive_frame(&second);
+        let timeline = CaptureTimeline::shared();
+        let first_pts = first_frame.capture_pts_ns.expect("shared first PTS");
+        let second_pts = second_frame.capture_pts_ns.expect("shared second PTS");
+        assert!(second_pts >= before_second - timeline.epoch_ns);
+        assert!(second_pts > first_pts);
+        let next = receive_frame(&second);
+        assert!(next.capture_pts_ns.unwrap() > second_pts);
+        assert!(first_frame.pts_ns.is_some() && second_frame.pts_ns.is_some());
+        drop(first);
+        assert!(receive_frame(&second).capture_pts_ns.unwrap() > second_pts);
+    }
 
     #[test]
     fn packed_rgba_handles_row_padding_and_rejects_bad_strides() {
@@ -248,6 +377,7 @@ mod tests {
                     height: 1,
                     rgba: vec![0, 0, 0, 255],
                     pts_ns: None,
+                    capture_pts_ns: None,
                     duration_ns: None,
                 }))
                 .expect("frame queue should accept three items");
