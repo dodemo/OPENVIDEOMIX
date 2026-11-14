@@ -5,6 +5,8 @@
 
 pub mod camera;
 
+pub mod reference_compositor;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
