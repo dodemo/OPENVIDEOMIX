@@ -42,7 +42,7 @@ pub struct VideoInput {
     pub is_online: bool,
     pub volume: f32, // 0.0 to 1.0
     pub is_muted: bool,
-    pub afv: bool, // Audio Follows Video
+    pub afv: bool,             // Audio Follows Video
     pub audio_meter_peak: f32, // 0.0 to 1.0 for UI display
     pub is_tally_program: bool,
     pub is_tally_preview: bool,
@@ -169,10 +169,32 @@ pub struct MixerState {
 impl Default for MixerState {
     fn default() -> Self {
         let mut inputs = vec![
-            VideoInput::new(1, "CAM 1 - Principal (USB/V4L2)", InputKind::Camera { device_path: "/dev/video0".into() }),
-            VideoInput::new(2, "CAM 2 - Plano Xeral (USB/V4L2)", InputKind::Camera { device_path: "/dev/video2".into() }),
-            VideoInput::new(3, "CAPTURA - Escritorio / Pantalla", InputKind::ScreenCapture { display_id: 0 }),
-            VideoInput::new(4, "VÍDEO - Clip Promocional", InputKind::MediaFile { path: "assets/intro.mp4".into() }),
+            VideoInput::new(
+                1,
+                "CAM 1 - Principal (USB/V4L2)",
+                InputKind::Camera {
+                    device_path: "/dev/video0".into(),
+                },
+            ),
+            VideoInput::new(
+                2,
+                "CAM 2 - Plano Xeral (USB/V4L2)",
+                InputKind::Camera {
+                    device_path: "/dev/video2".into(),
+                },
+            ),
+            VideoInput::new(
+                3,
+                "CAPTURA - Escritorio / Pantalla",
+                InputKind::ScreenCapture { display_id: 0 },
+            ),
+            VideoInput::new(
+                4,
+                "VÍDEO - Clip Promocional",
+                InputKind::MediaFile {
+                    path: "assets/intro.mp4".into(),
+                },
+            ),
             VideoInput::new(5, "BARRAS - SMPTE 50p Test", InputKind::ColorBars),
         ];
 
