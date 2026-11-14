@@ -1,19 +1,22 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
-use chrono::Local;
-use eframe::egui::{self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2};
-use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
-use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 #[cfg(feature = "gstreamer-capture")]
 use crate::capture::{CameraEvent, CameraSession};
-#[cfg(feature = "midi-input")]
-use openvideomix_core::midi::{MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget};
 #[cfg(feature = "midi-input")]
 use crate::midi_input::MidiInputService;
 #[cfg(feature = "local-control-api")]
 use crate::remote_control::RemoteControl;
-
+use chrono::Local;
+use eframe::egui::{
+    self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2,
+};
+use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
+#[cfg(feature = "midi-input")]
+use openvideomix_core::midi::{
+    MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget,
+};
+use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
     pub dispatcher: CommandDispatcher,
@@ -78,7 +81,8 @@ impl OpenVideoMixApp {
         match RemoteControl::start_if_configured(&app.mixer) {
             Ok(Some(server)) => {
                 app.remote = Some(server);
-                app.status_notification = Some("API local autenticada activa en 127.0.0.1:21873".into());
+                app.status_notification =
+                    Some("API local autenticada activa en 127.0.0.1:21873".into());
             }
             Ok(None) => {}
             Err(error) => app.status_notification = Some(format!("API local desactivada: {error}")),
@@ -315,7 +319,11 @@ impl OpenVideoMixApp {
     /// Load real PNG / Image file with alpha transparency from disk
     pub fn load_image_input(&mut self, ctx: &egui::Context, path: PathBuf) {
         let path_str = path.to_string_lossy().to_string();
-        let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        let file_name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
         match image::open(&path) {
             Ok(img) => {
@@ -349,7 +357,10 @@ impl OpenVideoMixApp {
 
                 self.mixer.inputs.push(input);
                 self.mixer.update_tally_flags();
-                self.status_notification = Some(format!("Imaxe cargada con éxito: {} ({}x{})", file_name, w, h));
+                self.status_notification = Some(format!(
+                    "Imaxe cargada con éxito: {} ({}x{})",
+                    file_name, w, h
+                ));
             }
             Err(err) => {
                 self.status_notification = Some(format!("Erro ao abrir o ficheiro PNG: {}", err));
@@ -382,7 +393,13 @@ impl OpenVideoMixApp {
     }
 
     /// Render video or graphic content inside a monitor rect
-    fn render_monitor_content(&self, ui: &mut egui::Ui, rect: Rect, input_id: Option<InputId>, is_program: bool) {
+    fn render_monitor_content(
+        &self,
+        ui: &mut egui::Ui,
+        rect: Rect,
+        input_id: Option<InputId>,
+        is_program: bool,
+    ) {
         let painter = ui.painter();
         let input = input_id.and_then(|id| self.mixer.inputs.iter().find(|i| i.id == id));
 
@@ -434,7 +451,10 @@ impl OpenVideoMixApp {
 
                     // Continuous moving indicator verifying real 50Hz frame rate
                     let scan_x = rect.min.x + ((self.animated_tick * 28.0) % rect.width());
-                    let scan_rect = Rect::from_min_size(Pos2::new(scan_x, bottom_rect.min.y + 2.0), Vec2::new(14.0, bottom_rect.height() - 4.0));
+                    let scan_rect = Rect::from_min_size(
+                        Pos2::new(scan_x, bottom_rect.min.y + 2.0),
+                        Vec2::new(14.0, bottom_rect.height() - 4.0),
+                    );
                     painter.rect_filled(scan_rect, 2.0, Color32::from_rgb(0, 255, 180));
 
                     // Timecode display in 50 FPS PAL standard
@@ -474,7 +494,10 @@ impl OpenVideoMixApp {
                 }
                 InputKind::ScreenCapture { display_id } => {
                     painter.rect_filled(rect, 0.0, Color32::from_rgb(24, 28, 38));
-                    let taskbar = Rect::from_min_size(Pos2::new(rect.min.x, rect.max.y - 18.0), Vec2::new(rect.width(), 18.0));
+                    let taskbar = Rect::from_min_size(
+                        Pos2::new(rect.min.x, rect.max.y - 18.0),
+                        Vec2::new(rect.width(), 18.0),
+                    );
                     painter.rect_filled(taskbar, 0.0, Color32::from_rgb(12, 14, 18));
                     painter.text(
                         Pos2::new(taskbar.max.x - 8.0, taskbar.center().y),
@@ -486,7 +509,10 @@ impl OpenVideoMixApp {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        format!("ESCRITORIO #{}\nVista de demostración: sen captura real", display_id),
+                        format!(
+                            "ESCRITORIO #{}\nVista de demostración: sen captura real",
+                            display_id
+                        ),
                         egui::FontId::proportional(16.0),
                         Color32::WHITE,
                     );
@@ -496,7 +522,10 @@ impl OpenVideoMixApp {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        format!("VÍDEO: {}\nMarcador de posición: sen decodificación real", path),
+                        format!(
+                            "VÍDEO: {}\nMarcador de posición: sen decodificación real",
+                            path
+                        ),
                         egui::FontId::proportional(15.0),
                         Color32::from_rgb(150, 200, 255),
                     );
@@ -524,13 +553,21 @@ impl OpenVideoMixApp {
                     // Draw user-loaded transparent PNG over Program!
                     // In vMix, lower thirds typically align at the bottom-center or left
                     let banner_w = rect.width() * 0.85;
-                    let banner_h = banner_w * (texture.size_vec2().y / texture.size_vec2().x.max(1.0));
+                    let banner_h =
+                        banner_w * (texture.size_vec2().y / texture.size_vec2().x.max(1.0));
                     let max_h = rect.height() * 0.40;
                     let final_h = banner_h.min(max_h);
-                    let final_w = if banner_h > max_h { banner_w * (max_h / banner_h) } else { banner_w };
+                    let final_w = if banner_h > max_h {
+                        banner_w * (max_h / banner_h)
+                    } else {
+                        banner_w
+                    };
 
                     let ov_rect = Rect::from_min_size(
-                        Pos2::new(rect.center().x - (final_w / 2.0), rect.max.y - final_h - 12.0),
+                        Pos2::new(
+                            rect.center().x - (final_w / 2.0),
+                            rect.max.y - final_h - 12.0,
+                        ),
                         Vec2::new(final_w, final_h),
                     );
 
@@ -565,7 +602,17 @@ impl eframe::App for OpenVideoMixApp {
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.show_settings = !self.show_settings;
         }
-        for (idx, key) in [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6].iter().enumerate() {
+        for (idx, key) in [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+        ]
+        .iter()
+        .enumerate()
+        {
             if ctx.input(|i| i.key_pressed(*key)) {
                 if let Some(inp) = self.mixer.inputs.get(idx) {
                     let id = inp.id;
@@ -611,11 +658,18 @@ impl eframe::App for OpenVideoMixApp {
         // BOTTOM STATUS BAR
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("Refresco UI (demo): {:.1}", self.mixer.fps)).strong().color(Color32::from_rgb(0, 230, 160)));
+                ui.label(
+                    RichText::new(format!("Refresco UI (demo): {:.1}", self.mixer.fps))
+                        .strong()
+                        .color(Color32::from_rgb(0, 230, 160)),
+                );
                 ui.separator();
                 ui.label(format!("CPU (demo): {:.1}%", self.mixer.cpu_usage_pct));
                 ui.separator();
-                ui.label(format!("Nós V4L2 (Linux): {}", self.connected_v4l2_devices.len()));
+                ui.label(format!(
+                    "Nós V4L2 (Linux): {}",
+                    self.connected_v4l2_devices.len()
+                ));
                 ui.separator();
 
                 if let Some(msg) = &self.status_notification {
@@ -623,7 +677,12 @@ impl eframe::App for OpenVideoMixApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new("Atallos: Espazo (CUT) | Enter (FADE) | 1-6 (PVW) | F1 (Axustes)").weak());
+                    ui.label(
+                        RichText::new(
+                            "Atallos: Espazo (CUT) | Enter (FADE) | 1-6 (PVW) | F1 (Axustes)",
+                        )
+                        .weak(),
+                    );
                 });
             });
         });
@@ -638,20 +697,35 @@ impl eframe::App for OpenVideoMixApp {
 
                 // PREVIEW (PVW)
                 ui.vertical(|ui| {
-                    let preview_name = self.mixer.preview_input
+                    let preview_name = self
+                        .mixer
+                        .preview_input
                         .and_then(|id| self.mixer.inputs.iter().find(|i| i.id == id))
                         .map(|i| i.name.as_str())
                         .unwrap_or("NINGÚN");
 
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("PREVIEW").color(Color32::from_rgb(40, 220, 80)).strong());
+                        ui.label(
+                            RichText::new("PREVIEW")
+                                .color(Color32::from_rgb(40, 220, 80))
+                                .strong(),
+                        );
                         ui.label(format!("({})", preview_name));
                     });
 
-                    let (rect, _response) = ui.allocate_exact_size(Vec2::new(monitor_width, monitor_height), Sense::hover());
-                    ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(15, 18, 20));
+                    let (rect, _response) = ui.allocate_exact_size(
+                        Vec2::new(monitor_width, monitor_height),
+                        Sense::hover(),
+                    );
+                    ui.painter()
+                        .rect_filled(rect, 4.0, Color32::from_rgb(15, 18, 20));
                     self.render_monitor_content(ui, rect, self.mixer.preview_input, false);
-                    ui.painter().rect_stroke(rect, 4.0, Stroke::new(2.5_f32, Color32::from_rgb(40, 200, 70)), StrokeKind::Inside);
+                    ui.painter().rect_stroke(
+                        rect,
+                        4.0,
+                        Stroke::new(2.5_f32, Color32::from_rgb(40, 200, 70)),
+                        StrokeKind::Inside,
+                    );
                 });
 
                 // TRANSITION CONTROLS & T-BAR
@@ -659,14 +733,27 @@ impl eframe::App for OpenVideoMixApp {
                     ui.set_width(130.0);
                     ui.add_space(8.0);
 
-                    if ui.add_sized([120.0, 38.0], egui::Button::new(RichText::new("CUT").strong().size(15.0).color(Color32::WHITE))).clicked() {
+                    if ui
+                        .add_sized(
+                            [120.0, 38.0],
+                            egui::Button::new(
+                                RichText::new("CUT")
+                                    .strong()
+                                    .size(15.0)
+                                    .color(Color32::WHITE),
+                            ),
+                        )
+                        .clicked()
+                    {
                         self.apply_command(ProductionCommand::Cut);
                     }
 
                     ui.add_space(4.0);
 
                     ui.add_enabled(false, egui::Button::new("FADE (pendente)"))
-                        .on_disabled_hover_text("FADE require composición interpolada de vídeo; non é un CUT.");
+                        .on_disabled_hover_text(
+                            "FADE require composición interpolada de vídeo; non é un CUT.",
+                        );
                     ui.add_enabled(false, egui::Button::new("MERGE (pendente)"))
                         .on_disabled_hover_text("MERGE aínda non produce unha transición visual.");
                     ui.add_enabled(false, egui::Button::new("WIPE (pendente)"))
@@ -675,26 +762,48 @@ impl eframe::App for OpenVideoMixApp {
                     ui.add_space(8.0);
                     ui.label(RichText::new("T-BAR (pendente)").weak());
                     let mut tbar = self.mixer.tbar_position;
-                    ui.add_enabled(false, egui::Slider::new(&mut tbar, 0.0..=1.0).vertical().show_value(false))
-                        .on_disabled_hover_text("O T-Bar aínda non renderiza fotogramas de transición.");
+                    ui.add_enabled(
+                        false,
+                        egui::Slider::new(&mut tbar, 0.0..=1.0)
+                            .vertical()
+                            .show_value(false),
+                    )
+                    .on_disabled_hover_text(
+                        "O T-Bar aínda non renderiza fotogramas de transición.",
+                    );
                 });
 
                 // PROGRAM (PGM)
                 ui.vertical(|ui| {
-                    let program_name = self.mixer.program_input
+                    let program_name = self
+                        .mixer
+                        .program_input
                         .and_then(|id| self.mixer.inputs.iter().find(|i| i.id == id))
                         .map(|i| i.name.as_str())
                         .unwrap_or("NINGÚN");
 
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("PROGRAM (demostración)").color(Color32::from_rgb(240, 50, 50)).strong());
+                        ui.label(
+                            RichText::new("PROGRAM (demostración)")
+                                .color(Color32::from_rgb(240, 50, 50))
+                                .strong(),
+                        );
                         ui.label(format!("({})", program_name));
                     });
 
-                    let (rect, _response) = ui.allocate_exact_size(Vec2::new(monitor_width, monitor_height), Sense::hover());
-                    ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(18, 12, 12));
+                    let (rect, _response) = ui.allocate_exact_size(
+                        Vec2::new(monitor_width, monitor_height),
+                        Sense::hover(),
+                    );
+                    ui.painter()
+                        .rect_filled(rect, 4.0, Color32::from_rgb(18, 12, 12));
                     self.render_monitor_content(ui, rect, self.mixer.program_input, true);
-                    ui.painter().rect_stroke(rect, 4.0, Stroke::new(2.5_f32, Color32::from_rgb(230, 40, 40)), StrokeKind::Inside);
+                    ui.painter().rect_stroke(
+                        rect,
+                        4.0,
+                        Stroke::new(2.5_f32, Color32::from_rgb(230, 40, 40)),
+                        StrokeKind::Inside,
+                    );
                 });
             });
 
@@ -712,9 +821,19 @@ impl eframe::App for OpenVideoMixApp {
                         ui.label(format!("({} activas)", self.mixer.inputs.len()));
 
                         // Open native file dialog for real PNG/images
-                        if ui.button(RichText::new("🖼️ ENGADIR Rótulo PNG (Explorador)").strong().color(Color32::from_rgb(0, 210, 255))).clicked() {
+                        if ui
+                            .button(
+                                RichText::new("🖼️ ENGADIR Rótulo PNG (Explorador)")
+                                    .strong()
+                                    .color(Color32::from_rgb(0, 210, 255)),
+                            )
+                            .clicked()
+                        {
                             if let Some(path) = rfd::FileDialog::new()
-                                .add_filter("Imaxes con transparencia (*.png, *.webp, *.jpg)", &["png", "webp", "jpg", "jpeg"])
+                                .add_filter(
+                                    "Imaxes con transparencia (*.png, *.webp, *.jpg)",
+                                    &["png", "webp", "jpg", "jpeg"],
+                                )
                                 .set_title("Seleccionar Rótulo ou Imaxe PNG")
                                 .pick_file()
                             {
@@ -751,20 +870,56 @@ impl eframe::App for OpenVideoMixApp {
                                     ui.vertical(|ui| {
                                         // Header with Title and Close Button [✕]
                                         ui.horizontal(|ui| {
-                                            ui.label(RichText::new(format!("#{}: {}", input.id, input.name)).strong().color(Color32::WHITE));
-                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                                // Close button
-                                                if ui.add(egui::Button::new(RichText::new("✕").color(Color32::from_rgb(240, 80, 80)).small())).clicked() {
-                                                    action_remove = Some(input.id);
-                                                }
-                                            });
+                                            ui.label(
+                                                RichText::new(format!(
+                                                    "#{}: {}",
+                                                    input.id, input.name
+                                                ))
+                                                .strong()
+                                                .color(Color32::WHITE),
+                                            );
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    // Close button
+                                                    if ui
+                                                        .add(egui::Button::new(
+                                                            RichText::new("✕")
+                                                                .color(Color32::from_rgb(
+                                                                    240, 80, 80,
+                                                                ))
+                                                                .small(),
+                                                        ))
+                                                        .clicked()
+                                                    {
+                                                        action_remove = Some(input.id);
+                                                    }
+                                                },
+                                            );
                                         });
 
                                         // Thumbnail / Preview Box
-                                        let (rect, response) = ui.allocate_exact_size(Vec2::new(168.0, 95.0), Sense::click());
-                                        ui.painter().rect_filled(rect, 3.0, Color32::from_rgb(25, 28, 34));
-                                        self.render_monitor_content(ui, rect, Some(input.id), false);
-                                        ui.painter().rect_stroke(rect, 3.0, Stroke::new(2.0_f32, border_color), StrokeKind::Inside);
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            Vec2::new(168.0, 95.0),
+                                            Sense::click(),
+                                        );
+                                        ui.painter().rect_filled(
+                                            rect,
+                                            3.0,
+                                            Color32::from_rgb(25, 28, 34),
+                                        );
+                                        self.render_monitor_content(
+                                            ui,
+                                            rect,
+                                            Some(input.id),
+                                            false,
+                                        );
+                                        ui.painter().rect_stroke(
+                                            rect,
+                                            3.0,
+                                            Stroke::new(2.0_f32, border_color),
+                                            StrokeKind::Inside,
+                                        );
 
                                         if response.clicked() {
                                             action_pvw_to = Some(input.id);
@@ -773,7 +928,10 @@ impl eframe::App for OpenVideoMixApp {
                                         // Audio Peak Bar Underneath
                                         let bar_rect = Rect::from_min_size(
                                             Pos2::new(rect.min.x + 4.0, rect.max.y - 7.0),
-                                            Vec2::new((rect.width() - 8.0) * input.audio_meter_peak, 4.0),
+                                            Vec2::new(
+                                                (rect.width() - 8.0) * input.audio_meter_peak,
+                                                4.0,
+                                            ),
                                         );
                                         let meter_color = if input.audio_meter_peak > 0.85 {
                                             Color32::from_rgb(235, 60, 60)
@@ -789,13 +947,29 @@ impl eframe::App for OpenVideoMixApp {
                                             if ui.button(RichText::new("PVW").small()).clicked() {
                                                 action_pvw_to = Some(input.id);
                                             }
-                                            if ui.button(RichText::new("PGM").small().color(Color32::from_rgb(255, 100, 100))).clicked() {
+                                            if ui
+                                                .button(
+                                                    RichText::new("PGM")
+                                                        .small()
+                                                        .color(Color32::from_rgb(255, 100, 100)),
+                                                )
+                                                .clicked()
+                                            {
                                                 action_cut_to = Some(input.id);
                                             }
 
                                             // Overlay 1 button (vMix style)
-                                            let ov1_color = if input.is_overlay_active { Color32::from_rgb(0, 190, 255) } else { Color32::GRAY };
-                                            if ui.button(RichText::new("OV1").small().color(ov1_color)).clicked() {
+                                            let ov1_color = if input.is_overlay_active {
+                                                Color32::from_rgb(0, 190, 255)
+                                            } else {
+                                                Color32::GRAY
+                                            };
+                                            if ui
+                                                .button(
+                                                    RichText::new("OV1").small().color(ov1_color),
+                                                )
+                                                .clicked()
+                                            {
                                                 action_toggle_ov1 = Some(input.id);
                                             }
                                         });
@@ -836,8 +1010,17 @@ impl eframe::App for OpenVideoMixApp {
                         ui.vertical(|ui| {
                             ui.label(RichText::new("MASTER").strong());
                             let mut vol = self.mixer.master_bus.volume;
-                            if ui.add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical().text("Vol")).changed() {
-                                self.apply_command(ProductionCommand::SetMasterVolume { volume: vol });
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut vol, 0.0..=1.0)
+                                        .vertical()
+                                        .text("Vol"),
+                                )
+                                .changed()
+                            {
+                                self.apply_command(ProductionCommand::SetMasterVolume {
+                                    volume: vol,
+                                });
                             }
                         });
 
@@ -847,7 +1030,10 @@ impl eframe::App for OpenVideoMixApp {
                         ui.vertical(|ui| {
                             ui.label("BUS A");
                             let mut vol = self.mixer.bus_a.volume;
-                            if ui.add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical()).changed() {
+                            if ui
+                                .add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical())
+                                .changed()
+                            {
                                 self.mixer.bus_a.volume = vol;
                             }
                         });
@@ -858,7 +1044,10 @@ impl eframe::App for OpenVideoMixApp {
                         ui.vertical(|ui| {
                             ui.label("AURIC.");
                             let mut vol = self.mixer.headphones_bus.volume;
-                            if ui.add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical()).changed() {
+                            if ui
+                                .add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical())
+                                .changed()
+                            {
                                 self.mixer.headphones_bus.volume = vol;
                             }
                         });
