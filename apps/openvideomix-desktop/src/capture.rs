@@ -323,7 +323,7 @@ mod tests {
         // It does not establish USB camera support or measured output FPS.
         gst::init().expect("GStreamer initialization");
         let element = gst::parse::launch(
-            "videotestsrc is-live=true num-buffers=4 pattern=ball ! \
+            "videotestsrc is-live=true num-buffers=20 pattern=ball ! \
              video/x-raw,format=RGBA,width=1920,height=1080,framerate=50/1 ! \
              appsink name=framesink sync=false max-buffers=2 drop=true",
         )
