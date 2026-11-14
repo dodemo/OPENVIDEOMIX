@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OPENVIDEOMIX Input</title>
+  <style>
+    :root { color-scheme: dark light; font-family: system-ui, sans-serif; }
+    body { padding: 12px; margin: 0; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    input { box-sizing: border-box; width: 100%; font-size: 1rem; padding: 8px; }
+    p { font-size: .875rem; opacity: .8; line-height: 1.5; }
+    :focus-visible { outline: 3px solid #5eaaff; outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <label for="source-input">OPENVIDEOMIX input number</label>
+  <input id="source-input" type="number" min="1" max="4294967295" step="1" value="1" inputmode="numeric">
+  <p>Enter an existing source ID. The same action works with OpenDeck and compatible Stream Deck software.</p>
+  <script>
+    (() => {
+      "use strict";
+      let socket;
+      let context;
+      const field = document.getElementById("source-input");
+
+      function setSettings(settings) {
+        const id = Number(settings?.input ?? 1);
+        if (Number.isSafeInteger(id) && id > 0 && id <= 4294967295) {
+          field.value = String(id);
+        }
+      }
+
+      // Called by OpenAction/Stream Deck when the property inspector opens.
+      window.connectElgatoStreamDeckSocket = function (port, uuid, registerEvent, info, actionInfo) {
+        context = uuid;
+        try {
+          setSettings(JSON.parse(actionInfo)?.payload?.settings);
+        } catch (_) {
+          setSettings({});
+        }
+        socket = new WebSocket("ws://127.0.0.1:" + port);
+        socket.addEventListener("open", () => {
+          socket.send(JSON.stringify({ event: registerEvent, uuid }));
+        });
+        socket.addEventListener("message", (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.event === "didReceiveSettings") {
+              setSettings(message.payload?.settings);
+            }
+          } catch (_) {}
+        });
+      };
+
+      field.addEventListener("change", () => {
+        const id = Number(field.value);
+        if (!socket || socket.readyState !== WebSocket.OPEN ||
+            !Number.isSafeInteger(id) || id < 1 || id > 4294967295) return;
+        socket.send(JSON.stringify({
+          event: "setSettings", context,
+          payload: { input: id }
+        }));
+      });
+    })();
+  </script>
+</body>
+</html>
