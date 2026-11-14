@@ -101,30 +101,14 @@ OPENVIDEOMIX debe soportar **Stream Deck/OpenDeck e controladores USB MIDI**, en
 - **Arquitectura:** GUI, teclado, OpenDeck, MIDI e API de rede executan exactamente as mesmas ordes tipadas sobre o núcleo; estado de tally, audio e gravación/streaming emítese por eventos. A API remota require autenticación, control de orixe e opción explícita de exposición LAN. Non bloquear os fíos en tempo real.
 - **Calidade:** probas sen hardware con controladores simulados, probas físicas posteriores, indicadores accesibles sen depender só da cor, control de permisos, detección de desconexión, perfís e documentación de plataformas.
 
-## Active autonomous assignment (2026-11-14)
+## Active autonomous assignment (2026-11-14, owner-confirmed)
 
-The latest user assignment is [issue #43](https://github.com/dodemo/OPENVIDEOMIX/issues/43):
-integrate the existing PR chain and repair CI, without additional product features,
-separately billed APIs, external AI agents or new services. Read the latest section
-of [docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md](docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md)
-and live GitHub heads/checks before continuing. The broader
-[docs/AUTONOMOUS_GOAL.md](docs/AUTONOMOUS_GOAL.md) is historical context, not permission
-to expand this assignment. The old #41 scope question is resolved by #43.
-Retarget dependencies only after their predecessors are in main; merge only reviewed,
-compatible changes with successful applicable CI on their exact current heads.
-Preserve Windows/Linux/macOS Intel/Apple Silicon, 1080p50 and 48 kHz.
-Issue #33 remains a release gate. Integrating this chain does not complete the first
-release or qualify physical devices, real audio, GPU composition or live 1080p50.
+**P0: Deliver the first working OPENVIDEOMIX Alpha on the owner's Windows 11 PC grande** — [issue #46](https://github.com/dodemo/OPENVIDEOMIX/issues/46). Keep Windows, Linux and macOS as target platforms. The first runtime environment is a physical Windows 11 machine with RTX 4080 SUPER, 96 GB RAM, Ollama and working OpenCode. The owner has verified that base `cargo test --workspace` passes with MSVC Build Tools 2026 and that the GUI opens; the first desktop run was without GStreamer features. Do not claim actual live capture or 50 FPS from those two results.
 
-### Serialized continuation
+For local OpenCode execution, use the concrete task [docs/LOCAL_WINDOWS_ALPHA_AGENT.md](docs/LOCAL_WINDOWS_ALPHA_AGENT.md) and the one-click `START-OPENVIDEOMIX-AGENT.cmd` launcher. **Implement and test**, not just inspect or write plans. Keep work on a feature branch, use the shared MSVC environment, record progress and errors in gitignored `local-results/`, and do not run paid AI services or publish private diagnostics without explicit permission. Do not run as Administrator or install system software without permission.
 
-Scheduled continuations must acquire the ephemeral Git ref
-`refs/heads/codex/continuation-lock` with a successful atomic create-ref request
-before making repository changes. Use the current main commit as its target. If
-it already exists, skip that run; never steal or expire it automatically. This
-ref is a concurrency guard, never a source/PR branch. A run may release only the
-lock it successfully created, after committing/pushing a complete continuation
-checkpoint. A crash may leave a stale lock: report it for recovery rather than
-starting overlapping writers. Interactive execution must follow the same guard
-when a recurring continuation is enabled. Read-only inspection is allowed without
-acquiring it. Never delete valuable source branches to recover a lock.
+Deliver a versioned Windows executable/ZIP with its own media runtime and codecs, no first-run downloads, and independently decoded AV evidence. Windows x64 is the first hardware test bench, **not the only platform**. Real camera/mic validation, 50/1 FPS sustained and an offline clean-VM installation require explicit evidence and must remain PENDING until done. Preserve 1920x1080 progressive at 50/1 and 48 kHz, and maintain cross-platform CI.
+
+**P1 mandatory after first usable Alpha:** [issue #47](https://github.com/dodemo/OPENVIDEOMIX/issues/47), multimodal mouth+voice active-speaker detection and per-program production profiles; manual operation suspends AUTO until explicit reactivation. [#2](https://github.com/dodemo/OPENVIDEOMIX/issues/2) is a future extension for virtual 4K/180/360 camera crops.
+
+The old [#43](https://github.com/dodemo/OPENVIDEOMIX/issues/43) PR-integration assignment is **completed/closed**, not the next task. [#45](https://github.com/dodemo/OPENVIDEOMIX/pull/45) adds live audio but is still Draft as of this update; review current head and CI before any merge. The old `codex/continuation-lock` serialization applied to the historical recurring cloud Codex workflow; it must not be created as a precondition for the local Windows agent. Never overlap agent writers on the same local working tree, force-push, or merge without verified applicable CI and review.
