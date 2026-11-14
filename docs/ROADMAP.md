@@ -1,10 +1,10 @@
 # Folla de ruta de OPENVIDEOMIX
 
-Estado a 14 de novembro de 2026. **Prioridade inmediata: primeira Alpha executábel e verificable no PC grande con Windows 10 Pro**; manter Windows, Linux e macOS Intel/Apple Silicon como obxectivos arquitectónicos. Ergonomía inspirada en vMix. **Prototipo técnico; non apto para produción.**
+Estado a 14 de novembro de 2026. **Prioridade inmediata: primeira Alpha executábel e verificable no PC grande con Windows 11**; manter Windows, Linux e macOS Intel/Apple Silicon como obxectivos arquitectónicos. Ergonomía inspirada en vMix. **Prototipo técnico; non apto para produción.**
 
 ## Prioridade P0 inmediata: primeira Alpha no PC grande con Windows
 
-**Fito e criterios de aceptación:** [issue #46](https://github.com/dodemo/OPENVIDEOMIX/issues/46). Banco físico principal: Windows 10 Pro x64, RTX 4080 SUPER 16 GB, 96 GB RAM e 2 TB NVMe. Windows é **a primeira máquina de validación**, non unha substitución dos obxectivos Linux/macOS.
+**Fito e criterios de aceptación:** [issue #46](https://github.com/dodemo/OPENVIDEOMIX/issues/46). Banco físico principal: Windows 11 x64, RTX 4080 SUPER 16 GB, 96 GB RAM e 2 TB NVMe. Windows é **a primeira máquina de validación**, non unha substitución dos obxectivos Linux/macOS.
 
 Orde obligatoria antes de ampliar o produto:
 
