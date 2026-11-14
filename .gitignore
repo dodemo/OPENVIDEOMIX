@@ -7,3 +7,8 @@ Cargo.lock
 .DS_Store
 
 /recordings/
+
+# Private local Windows agent diagnostics, SDKs and unpackaged artifacts
+/local-results/
+/local-tools/
+/local-release/
