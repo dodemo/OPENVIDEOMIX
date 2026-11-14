@@ -3,7 +3,7 @@
 Status: design decisions and research tasks; **not** a decision to replace the current engine.
 
 ## Product vision
-OPENVIDEOMIX aims to be an open-source live-production switcher inspired primarily by vMix, using OBS Studio as a reference for capture, sources, scenes and composition. Target solo operators and teams, Windows and Linux. Existing Rust/egui prototype is a starting point, not a binding UX specification.
+OPENVIDEOMIX aims to be an open-source live-production switcher inspired primarily by vMix, using OBS Studio as a reference for capture, sources, scenes and composition. Target solo operators and teams on Windows, Linux and macOS (Intel and Apple Silicon). Existing Rust/egui prototype is a starting point, not a binding UX specification.
 
 ## Confirmed interaction decisions
 - Separate Preview and Program; three prominent immediate-action buttons **CUT**, **MIX**, **WIPE**, with no TAKE button or T-Bar in the redesigned interface.
@@ -16,13 +16,13 @@ OPENVIDEOMIX aims to be an open-source live-production switcher inspired primari
 - MVP outcomes: live switching, titles/graphics, **Program recording (top priority)** and internet streaming.
 
 ## Architecture evaluation: libobs, not yet approved for adoption
-1. Prototype libobs integration with the existing Rust/egui architecture on Linux and Windows; assess FFI safety, frame transfer, latency, GPU interop, device enumeration, capture, recording and streaming.
-2. Compare with retaining the existing Rust engine plus selected open components; record benchmarks, maintenance and packaging impact.
+1. Prototype libobs integration with the existing Rust/egui architecture on Windows, Linux and macOS; assess FFI safety, frame transfer, latency, GPU interop, device enumeration, capture, recording and streaming.
+2. Compare with the active GStreamer capture candidate and a native GPU compositor, retaining the existing Rust engine plus selected open components; record benchmarks, maintenance and packaging impact.
 3. **Licensing gate:** repository currently carries an MIT LICENSE. OBS/libobs is GPL-licensed; directly incorporating GPL code may impose GPL obligations on the combined distributed program. Obtain an explicit licensing decision before implementing/distributing libobs integration. Do not assume MIT-only distribution remains possible.
 4. Preserve the current prototype until a validated migration plan exists.
 
 ## Prioritized module backlog
-P0: real sources and capture (USB, HDMI/SDI capture devices, display/window, video files), Preview/Program routing, scene compositing, audio sync, reliable Program recording, CUT/MIX/WIPE, editable basic titles, tests.
+P0: verified 1920x1080 progressive video at exactly 50/1 FPS as the default production profile, with 48 kHz audio; real sources and capture (USB, HDMI/SDI capture devices, display/window, video files), Preview/Program routing, scene compositing, audio sync, reliable Program recording, CUT/MIX/WIPE, editable basic titles, tests.
 P1: streaming, network sources (RTSP/SRT/NDI, checking SDK and licensing), scene editor isolation, full Stinger editor/player with alpha and exact switch frame, audio mixer and monitoring.
 P2: advanced title templates/animations, browser sources, playlists, richer transitions, automation/control surfaces, advanced routing and overlays.
 
@@ -34,4 +34,8 @@ Investigate the GitHub Craft Anything project and its licensing/integration opti
 ## Next decisions
 - Audit current code and docs against the new UX requirements.
 - Create individual actionable issues with acceptance criteria, cross-platform validation and explicit licensing dependencies.
-- Continue one product-design question at a time with the user; do not unilaterally settle unresolved design choices.
+- Continue implementation without prompting for routine choices. Escalate only genuine product conflicts that cannot be resolved from the recorded decisions.
+
+## Implementation status guardrail
+
+These are product direction requirements, not an assertion that the current prototype implements them. As of 2026-11-14, real capture is in draft PRs, while audio, actual Program recording/streaming, GPU composition and Stinger editing remain unfinished. The redesigned CUT/MIX/WIPE workflow without a T-Bar is an explicit future UI requirement and must not be confused with the existing demonstrator console. Native video support and output are not validated at 1080p50 until hardware and measured output tests pass.
