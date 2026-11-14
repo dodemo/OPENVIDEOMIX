@@ -1,6 +1,8 @@
 mod app;
 #[cfg(feature = "gstreamer-capture")]
 mod capture;
+#[cfg(feature = "gstreamer-capture")]
+mod capture_devices;
 #[cfg(feature = "midi-input")]
 mod midi_input;
 #[cfg(feature = "local-control-api")]
