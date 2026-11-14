@@ -1,4 +1,6 @@
 mod app;
+#[cfg(feature = "midi-input")]
+mod midi_input;
 
 use app::OpenVideoMixApp;
 
