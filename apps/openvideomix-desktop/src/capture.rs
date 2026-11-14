@@ -36,11 +36,19 @@ pub struct CameraSession {
 
 impl CameraSession {
     pub fn start() -> Self {
+        Self::start_source("autovideosrc")
+    }
+
+    pub fn start_synthetic() -> Self {
+        Self::start_source("videotestsrc is-live=true pattern=ball")
+    }
+
+    fn start_source(source: &'static str) -> Self {
         let (sender, receiver) = mpsc::sync_channel(3);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || {
-            if let Err(message) = run_capture(&sender, &worker_stop, "autovideosrc") {
+            if let Err(message) = run_capture(&sender, &worker_stop, source) {
                 let _ = sender.try_send(CameraEvent::Error(message));
             }
         });
