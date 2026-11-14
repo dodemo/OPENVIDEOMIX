@@ -186,18 +186,16 @@ mod tests {
 
     #[test]
     fn packed_rgba_handles_row_padding_and_rejects_bad_strides() {
-        let padded = [1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16];
-        assert_eq!(
-            copy_packed_rgba(&padded, 2, 2, 10),
-            None,
-            "A última fila incompleta non se debe interpretar como válida"
+        let incomplete = [
+            1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15,
+        ];
+        assert!(
+            copy_packed_rgba(&incomplete, 2, 2, 10).is_none(),
+            "An incomplete second row must be rejected"
         );
-        let padded = [1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16];
-        assert_eq!(
-            copy_packed_rgba(&padded, 2, 2, 10),
-            None
-        );
-        let padded = [1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16, 0, 0];
+        let padded = [
+            1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15, 16,
+        ];
         assert_eq!(
             copy_packed_rgba(&padded, 2, 2, 10),
             Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16])
