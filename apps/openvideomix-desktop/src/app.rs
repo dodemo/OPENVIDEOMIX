@@ -5,6 +5,10 @@ use chrono::Local;
 use eframe::egui::{self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2};
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
 use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
+#[cfg(feature = "midi-input")]
+use openvideomix_core::midi::{MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget};
+#[cfg(feature = "midi-input")]
+use crate::midi_input::MidiInputService;
 #[cfg(feature = "local-control-api")]
 use crate::remote_control::RemoteControl;
 
@@ -20,6 +24,16 @@ pub struct OpenVideoMixApp {
     pub animated_tick: f32,
     pub connected_v4l2_devices: Vec<String>,
     pub loaded_textures: HashMap<InputId, TextureHandle>,
+    #[cfg(feature = "midi-input")]
+    midi_ports: Vec<String>,
+    #[cfg(feature = "midi-input")]
+    midi_port_selected: usize,
+    #[cfg(feature = "midi-input")]
+    midi_session: Option<MidiInputService>,
+    #[cfg(feature = "midi-input")]
+    midi_mapper: MidiMapper,
+    #[cfg(feature = "midi-input")]
+    midi_learn: Option<MidiTarget>,
 }
 
 impl OpenVideoMixApp {
@@ -36,8 +50,20 @@ impl OpenVideoMixApp {
             animated_tick: 0.0,
             connected_v4l2_devices: Vec::new(),
             loaded_textures: HashMap::new(),
+            #[cfg(feature = "midi-input")]
+            midi_ports: Vec::new(),
+            #[cfg(feature = "midi-input")]
+            midi_port_selected: 0,
+            #[cfg(feature = "midi-input")]
+            midi_session: None,
+            #[cfg(feature = "midi-input")]
+            midi_mapper: MidiMapper::default(),
+            #[cfg(feature = "midi-input")]
+            midi_learn: None,
         };
         app.refresh_video_devices();
+        #[cfg(feature = "midi-input")]
+        app.refresh_midi_ports();
         #[cfg(feature = "local-control-api")]
         match RemoteControl::start_if_configured(&app.mixer) {
             Ok(Some(server)) => {
@@ -54,6 +80,113 @@ impl OpenVideoMixApp {
     fn apply_command(&mut self, command: ProductionCommand) {
         if let Err(error) = self.dispatcher.dispatch(&mut self.mixer, command) {
             self.status_notification = Some(format!("Orde rexeitada: {error}"));
+        }
+    }
+
+    #[cfg(feature = "midi-input")]
+    fn refresh_midi_ports(&mut self) {
+        match MidiInputService::ports() {
+            Ok(ports) => {
+                self.midi_ports = ports;
+                if self.midi_port_selected >= self.midi_ports.len() {
+                    self.midi_port_selected = 0;
+                }
+            }
+            Err(message) => {
+                self.midi_ports.clear();
+                self.status_notification = Some(message);
+            }
+        }
+    }
+
+    #[cfg(feature = "midi-input")]
+    fn save_midi_profile(&mut self) {
+        let profile = MidiProfile::new("OPENVIDEOMIX controller", self.midi_mapper.bindings.clone());
+        if let Err(message) = profile.validate() {
+            self.status_notification = Some(format!("Perfil MIDI inválido: {message}"));
+            return;
+        }
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("OPENVIDEOMIX MIDI profile", &["json"])
+            .set_file_name("openvideomix-midi.json")
+            .save_file()
+        else {
+            return;
+        };
+        let result = serde_json::to_vec_pretty(&profile)
+            .map_err(|error| error.to_string())
+            .and_then(|bytes| std::fs::write(&path, bytes).map_err(|error| error.to_string()));
+        self.status_notification = Some(match result {
+            Ok(()) => format!("Perfil MIDI gardado: {}", path.display()),
+            Err(message) => format!("Erro ao gardar perfil MIDI: {message}"),
+        });
+    }
+
+    #[cfg(feature = "midi-input")]
+    fn load_midi_profile(&mut self) {
+        const MAX_PROFILE_BYTES: u64 = 128 * 1024;
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("OPENVIDEOMIX MIDI profile", &["json"])
+            .pick_file()
+        else {
+            return;
+        };
+        let load = (|| -> Result<MidiProfile, String> {
+            let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
+            if metadata.len() > MAX_PROFILE_BYTES {
+                return Err("O perfil MIDI supera o tamaño permitido".into());
+            }
+            let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+            if bytes.len() as u64 > MAX_PROFILE_BYTES {
+                return Err("O perfil MIDI supera o tamaño permitido".into());
+            }
+            let profile: MidiProfile =
+                serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+            profile.validate()?;
+            Ok(profile)
+        })();
+        match load {
+            Ok(profile) => {
+                let count = profile.bindings.len();
+                self.midi_mapper.replace_bindings(profile.bindings);
+                self.midi_learn = None;
+                self.status_notification = Some(format!("Perfil MIDI cargado: {count} asignacións"));
+            }
+            Err(message) => {
+                self.status_notification = Some(format!("Erro ao cargar perfil MIDI: {message}"));
+            }
+        }
+    }
+
+    #[cfg(feature = "midi-input")]
+    fn poll_midi(&mut self) {
+        let events = self.midi_session.as_ref().map(MidiInputService::drain);
+        let Some(events) = events else {
+            return;
+        };
+        for event in events {
+            if matches!(event, MidiEvent::NoteOff { .. }) {
+                // Release messages are still useful to mapper state.
+                if self.midi_learn.is_some() {
+                    continue;
+                }
+            }
+            if let Some(target) = self.midi_learn.take() {
+                let source = MidiSource::from_event(event);
+                let mut bindings = self.midi_mapper.bindings.clone();
+                // Exactly one action per physical control for this first UI.
+                bindings.retain(|binding| binding.source != source);
+                bindings.push(MidiBinding { source, target });
+                self.midi_mapper.replace_bindings(bindings);
+                self.status_notification = Some(
+                    "Control MIDI asignado. Podes gardar o perfil desde Axustes > MIDI.".into(),
+                );
+                continue;
+            }
+            let commands = self.midi_mapper.process(event, &self.mixer);
+            for command in commands {
+                self.apply_command(command);
+            }
         }
     }
 
@@ -305,6 +438,8 @@ impl eframe::App for OpenVideoMixApp {
             remote.poll(&mut self.dispatcher, &mut self.mixer);
         }
         self.update_simulation();
+        #[cfg(feature = "midi-input")]
+        self.poll_midi();
 
         // Keyboard Shortcuts (CUT with Space/Enter; other transitions unavailable)
         if ctx.input(|i| i.key_pressed(Key::Space)) {
@@ -625,6 +760,8 @@ impl eframe::App for OpenVideoMixApp {
                         ui.selectable_value(&mut self.settings_tab, 0, "🎥 Vídeo (Resolución & FPS)");
                         ui.selectable_value(&mut self.settings_tab, 1, "🔊 Son");
                         ui.selectable_value(&mut self.settings_tab, 2, "🔌 Dispositivos de Captura");
+                        #[cfg(feature = "midi-input")]
+                        ui.selectable_value(&mut self.settings_tab, 3, "MIDI");
                     });
                     ui.separator();
 
@@ -677,6 +814,83 @@ impl eframe::App for OpenVideoMixApp {
                             } else {
                                 for dev in &self.connected_v4l2_devices {
                                     ui.label(format!("✅ Dispositivo dispoñible: {}", dev));
+                                }
+                            }
+                        }
+                        #[cfg(feature = "midi-input")]
+                        3 => {
+                            ui.heading("Superficie de control MIDI");
+                            ui.label("MIDI Learn: escolle unha función e move un botón ou fader.");
+                            if ui.button("Actualizar portos MIDI").clicked() {
+                                self.refresh_midi_ports();
+                            }
+                            egui::ComboBox::from_id_salt("midi_port")
+                                .selected_text(
+                                    self.midi_ports
+                                        .get(self.midi_port_selected)
+                                        .map(String::as_str)
+                                        .unwrap_or("Ningún porto MIDI"),
+                                )
+                                .show_ui(ui, |ui| {
+                                    for (index, port) in self.midi_ports.iter().enumerate() {
+                                        ui.selectable_value(
+                                            &mut self.midi_port_selected,
+                                            index,
+                                            port,
+                                        );
+                                    }
+                                });
+                            ui.horizontal(|ui| {
+                                if ui.button("Conectar").clicked() {
+                                    match MidiInputService::connect(self.midi_port_selected) {
+                                        Ok(session) => {
+                                            let name = session.port_name.clone();
+                                            self.midi_session = Some(session);
+                                            self.status_notification =
+                                                Some(format!("MIDI conectado: {name}"));
+                                        }
+                                        Err(message) => self.status_notification = Some(message),
+                                    }
+                                }
+                                if ui.button("Desconectar").clicked() {
+                                    self.midi_session = None;
+                                    self.status_notification =
+                                        Some("MIDI desconectado".into());
+                                }
+                            });
+                            if let Some(session) = &self.midi_session {
+                                ui.label(format!("Porto activo: {}", session.port_name));
+                            }
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                if ui.button("Aprender CUT").clicked() {
+                                    self.midi_learn = Some(MidiTarget::Cut);
+                                }
+                                if ui.button("Aprender volume Master").clicked() {
+                                    self.midi_learn = Some(MidiTarget::MasterVolume);
+                                }
+                            });
+                            ui.label("Asignar botóns de cámara a Preview:");
+                            egui::ScrollArea::vertical().max_height(110.0).show(ui, |ui| {
+                                for input in &self.mixer.inputs {
+                                    if ui.button(format!("PVW #{} {}", input.id, input.name)).clicked() {
+                                        self.midi_learn = Some(MidiTarget::SelectPreview(input.id));
+                                    }
+                                }
+                            });
+                            ui.label(format!("Asignacións MIDI nesta sesión: {}", self.midi_mapper.bindings.len()));
+                            ui.horizontal(|ui| {
+                                if ui.button("Gardar perfil MIDI...").clicked() {
+                                    self.save_midi_profile();
+                                }
+                                if ui.button("Cargar perfil MIDI...").clicked() {
+                                    self.load_midi_profile();
+                                }
+                            });
+                            if self.midi_learn.is_some() {
+                                ui.label(RichText::new("Aprendizaxe activa: move un control MIDI").strong());
+                                if ui.button("Cancelar MIDI Learn").clicked() {
+                                    self.midi_learn = None;
                                 }
                             }
                         }

@@ -19,10 +19,12 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true
+serde_json = { workspace = true, optional = true }
 
 [features]
 default = []
 local-control-api = ["dep:axum", "dep:serde", "dep:subtle"]
+midi-input = ["dep:midir", "dep:serde_json"]
 
 [dependencies.axum]
 version = "0.8"
@@ -38,3 +40,7 @@ optional = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+
+[dependencies.midir]
+version = "0.10"
+optional = true
