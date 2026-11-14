@@ -12,10 +12,10 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 use gst::prelude::*;
+use gst_video::prelude::*;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
-use gst_video::prelude::*;
 
 pub struct CameraFrame {
     pub width: usize,
@@ -61,7 +61,11 @@ impl Drop for CameraSession {
     }
 }
 
-fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool, source: &str) -> Result<(), String> {
+fn run_capture(
+    sender: &SyncSender<CameraEvent>,
+    stop: &AtomicBool,
+    source: &str,
+) -> Result<(), String> {
     gst::init().map_err(|e| format!("GStreamer: {e}"))?;
 
     // A conservative working format is used until device capability
@@ -73,7 +77,7 @@ fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool, source: &str
          appsink name=framesink emit-signals=false sync=false max-buffers=2 drop=true"
     );
     let element = gst::parse::launch(&pipeline_description)
-    .map_err(|e| format!("Non se puido crear o pipeline de webcam: {e}"))?;
+        .map_err(|e| format!("Non se puido crear o pipeline de webcam: {e}"))?;
 
     let pipeline = element
         .dynamic_cast::<gst::Pipeline>()
@@ -133,7 +137,8 @@ fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool, source: &str
         let Some(buffer) = sample.buffer() else {
             continue;
         };
-        let Ok(video_frame) = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info) else {
+        let Ok(video_frame) = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
+        else {
             continue;
         };
         let Ok(plane) = video_frame.plane_data(0) else {
@@ -186,9 +191,7 @@ mod tests {
 
     #[test]
     fn packed_rgba_handles_row_padding_and_rejects_bad_strides() {
-        let incomplete = [
-            1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15,
-        ];
+        let incomplete = [1, 2, 3, 4, 5, 6, 7, 8, 99, 99, 9, 10, 11, 12, 13, 14, 15];
         assert!(
             copy_packed_rgba(&incomplete, 2, 2, 10).is_none(),
             "An incomplete second row must be rejected"
