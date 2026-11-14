@@ -66,6 +66,23 @@ class LocalAlphaLoopTests(unittest.TestCase):
         self.assertFalse(ready)
         self.assertIn("GStreamer", why)
 
+    def test_local_gstreamer_sdk_is_opt_in_and_scoped_to_process(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            binary = base / "bin"
+            pkg = base / "lib" / "pkgconfig"
+            binary.mkdir()
+            pkg.mkdir(parents=True)
+            (binary / "gst-inspect-1.0.exe").write_bytes(b"stub")
+            with patch.dict(loop.os.environ, {
+                "GSTREAMER_1_0_ROOT_MSVC_X86_64": str(base),
+                "PATH": "some-other-tool",
+                "PKG_CONFIG_PATH": "",
+            }):
+                loop.configure_media_paths()
+                self.assertTrue(loop.os.environ["PATH"].startswith(str(binary)))
+                self.assertIn(str(pkg), loop.os.environ["PKG_CONFIG_PATH"])
+
     def test_branch_resume_and_no_dirty_main(self):
         with patch.object(loop, "capture", side_effect=[
             (0, "https://github.com/dodemo/OPENVIDEOMIX.git"),
