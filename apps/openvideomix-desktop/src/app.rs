@@ -27,9 +27,7 @@ pub struct OpenVideoMixApp {
     pub connected_v4l2_devices: Vec<String>,
     pub loaded_textures: HashMap<InputId, TextureHandle>,
     #[cfg(feature = "gstreamer-capture")]
-    capture_session: Option<CameraSession>,
-    #[cfg(feature = "gstreamer-capture")]
-    capture_input_id: Option<InputId>,
+    capture_sessions: HashMap<InputId, CameraSession>,
     #[cfg(feature = "midi-input")]
     midi_ports: Vec<String>,
     #[cfg(feature = "midi-input")]
@@ -57,9 +55,7 @@ impl OpenVideoMixApp {
             connected_v4l2_devices: Vec::new(),
             loaded_textures: HashMap::new(),
             #[cfg(feature = "gstreamer-capture")]
-            capture_session: None,
-            #[cfg(feature = "gstreamer-capture")]
-            capture_input_id: None,
+            capture_sessions: HashMap::new(),
             #[cfg(feature = "midi-input")]
             midi_ports: Vec::new(),
             #[cfg(feature = "midi-input")]
@@ -211,17 +207,10 @@ impl OpenVideoMixApp {
         }
     }
 
-    /// Start the default system USB camera. Only one active capture is
-    /// supported by this proof of concept; input selection comes later.
+    /// Start an independent pipeline, associated with its own stable input ID.
     fn add_default_usb_camera(&mut self, _synthetic: bool) {
         #[cfg(feature = "gstreamer-capture")]
         {
-            // Drop old session before starting the new pipeline.
-            self.capture_session = None;
-            if let Some(id) = self.capture_input_id.take() {
-                self.loaded_textures.remove(&id);
-                self.mixer.remove_input(id);
-            }
             let next_id = self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0) + 1;
             let mut input = VideoInput::new(
                 next_id,
@@ -240,12 +229,14 @@ impl OpenVideoMixApp {
             );
             input.is_online = false;
             self.mixer.inputs.push(input);
-            self.capture_input_id = Some(next_id);
-            self.capture_session = Some(if _synthetic {
-                CameraSession::start_synthetic()
-            } else {
-                CameraSession::start()
-            });
+            self.capture_sessions.insert(
+                next_id,
+                if _synthetic {
+                    CameraSession::start_synthetic()
+                } else {
+                    CameraSession::start()
+                },
+            );
             self.status_notification = Some(if _synthetic {
                 "Iniciando sinal de proba de GStreamer...".into()
             } else {
@@ -262,18 +253,28 @@ impl OpenVideoMixApp {
 
     #[cfg(feature = "gstreamer-capture")]
     fn poll_camera(&mut self, ctx: &egui::Context) {
-        let (Some(session), Some(id)) = (&self.capture_session, self.capture_input_id) else {
-            return;
-        };
-        let mut last_frame = None;
-        let mut error = None;
-        while let Ok(event) = session.receiver.try_recv() {
-            match event {
-                CameraEvent::Frame(frame) => last_frame = Some(frame),
-                CameraEvent::Error(message) => error = Some(message),
+        // Drain at most one latest frame per input. Never hold a borrow of
+        // the sessions while uploading textures or mutating the mixer.
+        let mut updates = Vec::new();
+        let mut failures = Vec::new();
+        for (&id, session) in &self.capture_sessions {
+            let mut latest = None;
+            while let Ok(event) = session.receiver.try_recv() {
+                match event {
+                    CameraEvent::Frame(frame) => latest = Some(frame),
+                    CameraEvent::Error(message) => {
+                        failures.push((id, message));
+                        latest = None;
+                        break;
+                    }
+                }
+            }
+            if let Some(frame) = latest {
+                updates.push((id, frame));
             }
         }
-        if let Some(frame) = last_frame {
+
+        for (id, frame) in updates {
             let image =
                 egui::ColorImage::from_rgba_unmultiplied([frame.width, frame.height], &frame.rgba);
             if let Some(texture) = self.loaded_textures.get_mut(&id) {
@@ -284,31 +285,31 @@ impl OpenVideoMixApp {
                     ctx.load_texture(format!("camera_{id}"), image, egui::TextureOptions::LINEAR),
                 );
                 self.status_notification =
-                    Some("Pipeline de vídeo GStreamer activo en Preview/Program.".into());
+                    Some(format!("Fonte {id}: pipeline de vídeo GStreamer activo."));
             }
             if let Some(input) = self.mixer.inputs.iter_mut().find(|input| input.id == id) {
                 input.width = frame.width as u32;
                 input.height = frame.height as u32;
-                input.fps = 30; // negotiated PoC output; not measured output FPS
+                input.fps = 30; // PoC negotiated output, not measured output FPS.
                 input.is_online = true;
                 input.name = if matches!(
                     &input.kind,
                     InputKind::Camera { device_path } if device_path.starts_with("synthetic:")
                 ) {
-                    "Sinal sintético GStreamer (proba)".into()
+                    format!("Sinal sintético #{id} (proba)")
                 } else {
-                    "Webcam USB - vídeo capturado".into()
+                    format!("Webcam USB #{id} - vídeo capturado")
                 };
             }
         }
-        if let Some(message) = error {
+        for (id, message) in failures {
+            self.capture_sessions.remove(&id);
+            self.loaded_textures.remove(&id);
             if let Some(input) = self.mixer.inputs.iter_mut().find(|input| input.id == id) {
                 input.is_online = false;
-                input.name = "Webcam USB - erro de captura".into();
+                input.name = format!("Fonte #{id} - erro de captura");
             }
-            self.loaded_textures.remove(&id);
-            self.status_notification = Some(message);
-            self.capture_session = None;
+            self.status_notification = Some(format!("Fonte #{id}: {message}"));
         }
     }
 
@@ -812,10 +813,7 @@ impl eframe::App for OpenVideoMixApp {
                             }
                             if let Some(id) = action_remove {
                                 #[cfg(feature = "gstreamer-capture")]
-                                if self.capture_input_id == Some(id) {
-                                    self.capture_session = None;
-                                    self.capture_input_id = None;
-                                }
+                                self.capture_sessions.remove(&id);
                                 self.loaded_textures.remove(&id);
                                 self.mixer.remove_input(id);
                             }
