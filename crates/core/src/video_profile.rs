@@ -145,6 +145,19 @@ mod tests {
     }
 
     #[test]
+    fn fractional_5994_is_not_silently_accepted_as_50fps() {
+        let source = capabilities(vec![mode(
+            1920,
+            1080,
+            FrameRate::new(60_000, 1_001).unwrap(),
+        )]);
+        assert_eq!(
+            VideoProfile::default().negotiate_exact(&source, &[PixelFormat::Mjpeg]),
+            SourceModeDecision::ConversionRequired
+        );
+    }
+
+    #[test]
     fn absent_capabilities_do_not_claim_support() {
         assert_eq!(
             VideoProfile::default().negotiate_exact(&capabilities(vec![]), &[]),
