@@ -6,6 +6,7 @@
 pub mod camera;
 pub mod camera_registry;
 pub mod media_timebase;
+pub mod video_profile;
 
 pub mod reference_compositor;
 pub mod reference_output;
@@ -57,9 +58,9 @@ impl VideoInput {
             id,
             name: name.into(),
             kind,
-            width: 1920,
-            height: 1080,
-            fps: 50,
+            width: video_profile::DEFAULT_VIDEO_WIDTH,
+            height: video_profile::DEFAULT_VIDEO_HEIGHT,
+            fps: video_profile::DEFAULT_VIDEO_FPS_NUMERATOR,
             is_online: true,
             volume: 0.85,
             is_muted: false,
@@ -135,10 +136,10 @@ impl ProjectSettings {
 impl Default for ProjectSettings {
     fn default() -> Self {
         Self {
-            output_resolution: "1920x1080 (Full HD)".into(),
-            frame_rate: "50.00 fps (PAL Broadcast 50Hz)".into(),
-            audio_device: "SN6140 Analog / PipeWire".into(),
-            audio_sample_rate: 48000,
+            output_resolution: video_profile::DEFAULT_OUTPUT_RESOLUTION_LABEL.into(),
+            frame_rate: video_profile::DEFAULT_OUTPUT_FRAME_RATE_LABEL.into(),
+            audio_device: "System default (not yet opened)".into(),
+            audio_sample_rate: video_profile::DEFAULT_AUDIO_SAMPLE_RATE,
         }
     }
 }
@@ -297,5 +298,24 @@ impl MixerState {
         if clamped >= 0.999 {
             self.cut();
         }
+    }
+}
+
+#[cfg(test)]
+mod profile_defaults_tests {
+    use super::*;
+
+    #[test]
+    fn new_project_and_inputs_use_the_same_1080p50_profile() {
+        let settings = ProjectSettings::default();
+        let target = video_profile::VideoProfile::default();
+        assert_eq!(settings.output_resolution, "1920x1080 (Full HD)");
+        assert_eq!(settings.frame_rate, "50.00 fps (PAL Broadcast 50Hz)");
+        assert_eq!(settings.audio_sample_rate, 48_000);
+        assert_eq!(settings.audio_device, "System default (not yet opened)");
+        let input = VideoInput::new(42, "test", InputKind::ColorBars);
+        assert_eq!((input.width, input.height), (target.width, target.height));
+        assert_eq!(input.fps, target.frame_rate.numerator);
+        assert_eq!(target.frame_rate.denominator, 1);
     }
 }

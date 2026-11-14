@@ -11,6 +11,13 @@ Estado a 14 de novembro de 2026. Prioridade: realización nativa con ergonomía 
 - [x] Bus de ordes tipadas, API HTTP local autenticada opcional, MIDI Learn e complemento OpenAction para OpenDeck; hardware real sen validar.
 - [x] CI base con probas nas plataformas dispoñibles; validar cada novo PR por separado.
 
+## Contrato de vídeo predeterminado
+
+- **1920 × 1080 progresivo, 50/1 fps exactos, audio 48 kHz** en proxectos novos.
+- Preview, Program e futuras saídas deben usar 1080p50 por defecto; modos distintos só mediante configuración explícita.
+- As cámaras deben anunciar as súas capacidades reais; sen coincidencia exacta, informar de conversión necesaria e non presentar outro modo como 1080p50 nativo.
+- Medir FPS de captura e de saída independentemente da GUI. As probas a 640 × 360 / 30 fps non cumpren esta condición.
+
 ## Fase inmediata: sinal de vídeo verificable
 
 - [ ] Integrar [PR #22](https://github.com/dodemo/OPENVIDEOMIX/pull/22): GStreamer, cámara predeterminada e fonte sintética, **só tras CI completa**.
