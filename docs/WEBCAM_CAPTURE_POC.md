@@ -38,7 +38,7 @@ Sen o feature, o programa mantén a interface habitual e explica que a captura U
 - [gstreamer-rs AppSink](https://gstreamer.pages.freedesktop.org/gstreamer-rs/stable/latest/docs/gstreamer_app/struct.AppSink.html)
 - Issues #3, #6, #10
 
-**Limitación da revisión actual:** o contorno remoto usado para editar GitHub non ten un compilador Rust nin GStreamer de desenvolvemento, polo que non se executaron as probas. A PR debe permanecer en borrador ata CI e hardware real.
+**Validación local (2026-11-14):** executados en Linux `cargo fmt --all -- --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets --all-features -- -D warnings` e `cargo test --workspace --all-features`: 28 probas do núcleo e 11 do escritorio superadas. Non hai hardware físico validado; manter os gates de CI multiplataforma.
 
 ## Validación da seguinte etapa: varias fontes
 
@@ -47,3 +47,25 @@ A rama dependente `feat/concurrent-gstreamer-inputs` conserva unha sesión de `C
 ## Timestamps de captura (prototipo)
 
 Cada `CameraFrame` transporta agora `pts_ns` e `duration_ns` opcionais, copiados dos metadatos de `GstBuffer`. A proba de fonte sintética comproba que se recibiu un PTS. O valor é relativo ao pipeline de cada fonte: **non é un reloxo global compartido entre dúas cámaras**, non acredita sincronía A/V e non debe compararse directamente con PTS doutro pipeline sen mapear as bases temporais. Un dispositivo real pode non proporcionar PTS; neste caso o campo é `None`. A GUI segue amosando texturas sen usar estes tempos para compoñer a saída broadcast.
+
+## Mapeo ao reloxo común de captura
+
+`capture_pts_ns` é un campo adicional: todas as sesións utilizan explicitamente
+un `GstSystemClock` compartido e unha única época do proceso. A transformación é
+`segment.to_running_time(PTS) + pipeline.base_time - epoch`, con aritmética
+comprobada. Respecta o segmento (non só o PTS cru), conserva a separación temporal
+entre sesións iniciadas en momentos diferentes e deixa `None` cando faltan
+metadatos, o PTS está fóra do segmento ou hai overflow/underflow. `pts_ns` segue
+conservando o valor local orixinal descrito arriba.
+
+A GUI distingue PTS local e común na notificación inicial; ningún é unha medida
+de FPS nin do instante físico de exposición. Dúas probas verifican segmentos e
+metadatos inválidos, e fontes sintéticas iniciadas separadamente, mantendo o
+offset real e a continuidade ao pechar a primeira. Un gardián RAII devolve o
+pipeline a NULL tamén nas saídas temperás por erro de inicio.
+
+Este mapeo aínda non corrixe deriva de dispositivos, non calibra latencia USB,
+non establece sincronía A/V e non conecta as colas ao compositor GPU ou gravador.
+O reloxo de audio mestre e a sincronización física seguen pendentes. A ruta de
+captura experimental mantén 640×360/30 explicitamente; non substitúe o perfil
+predeterminado 1080p50 da produción nin acredita 1080p50 medido.

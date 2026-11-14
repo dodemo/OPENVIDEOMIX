@@ -349,12 +349,16 @@ impl OpenVideoMixApp {
                     .pts_ns
                     .map(|value| format!("{value} ns"))
                     .unwrap_or_else(|| "non dispoñible".into());
+                let shared_pts = frame
+                    .capture_pts_ns
+                    .map(|value| format!("{value} ns"))
+                    .unwrap_or_else(|| "non dispoñible".into());
                 let duration = frame
                     .duration_ns
                     .map(|value| format!("{value} ns"))
                     .unwrap_or_else(|| "non dispoñible".into());
                 self.status_notification = Some(format!(
-                    "Fonte {id}: GStreamer activo; PTS inicial {pts}, duración {duration} (reloxo local)."
+                    "Fonte {id}: GStreamer activo; PTS local {pts}, PTS común {shared_pts}, duración {duration}."
                 ));
             }
             if let Some(input) = self.mixer.inputs.iter_mut().find(|input| input.id == id) {
