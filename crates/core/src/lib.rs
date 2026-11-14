@@ -7,6 +7,10 @@ pub mod camera;
 
 pub mod reference_compositor;
 
+pub mod commands;
+pub mod midi;
+pub mod vmix_compat;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 

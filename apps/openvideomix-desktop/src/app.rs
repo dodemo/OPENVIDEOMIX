@@ -4,9 +4,11 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use eframe::egui::{self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2};
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
+use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
+    pub dispatcher: CommandDispatcher,
     pub status_notification: Option<String>,
     pub show_settings: bool,
     pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
@@ -20,6 +22,7 @@ impl OpenVideoMixApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self {
             mixer: MixerState::default(),
+            dispatcher: CommandDispatcher::default(),
             status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
             show_settings: false,
             settings_tab: 0,
@@ -30,6 +33,13 @@ impl OpenVideoMixApp {
         };
         app.refresh_video_devices();
         app
+    }
+
+    /// One validated command entry point for the GUI and external surfaces.
+    fn apply_command(&mut self, command: ProductionCommand) {
+        if let Err(error) = self.dispatcher.dispatch(&mut self.mixer, command) {
+            self.status_notification = Some(format!("Orde rexeitada: {error}"));
+        }
     }
 
     /// Scan system for real video devices (/dev/video*)
@@ -279,10 +289,10 @@ impl eframe::App for OpenVideoMixApp {
 
         // Keyboard Shortcuts (CUT with Space/Enter; other transitions unavailable)
         if ctx.input(|i| i.key_pressed(Key::Space)) {
-            self.mixer.cut();
+            self.apply_command(ProductionCommand::Cut);
         }
         if ctx.input(|i| i.key_pressed(Key::Enter)) {
-            self.mixer.cut();
+            self.apply_command(ProductionCommand::Cut);
         }
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.show_settings = !self.show_settings;
@@ -291,7 +301,7 @@ impl eframe::App for OpenVideoMixApp {
             if ctx.input(|i| i.key_pressed(*key)) {
                 if let Some(inp) = self.mixer.inputs.get(idx) {
                     let id = inp.id;
-                    self.mixer.select_preview(id);
+                    self.apply_command(ProductionCommand::SelectPreview { input: id });
                 }
             }
         }
@@ -382,7 +392,7 @@ impl eframe::App for OpenVideoMixApp {
                     ui.add_space(8.0);
 
                     if ui.add_sized([120.0, 38.0], egui::Button::new(RichText::new("CUT").strong().size(15.0).color(Color32::WHITE))).clicked() {
-                        self.mixer.cut();
+                        self.apply_command(ProductionCommand::Cut);
                     }
 
                     ui.add_space(4.0);
@@ -529,16 +539,16 @@ impl eframe::App for OpenVideoMixApp {
                             }
 
                             if let Some(id) = action_cut_to {
-                                self.mixer.select_program(id);
+                                self.apply_command(ProductionCommand::SelectProgram { input: id });
                             }
                             if let Some(id) = action_pvw_to {
-                                self.mixer.select_preview(id);
+                                self.apply_command(ProductionCommand::SelectPreview { input: id });
                             }
                             if let Some(id) = action_remove {
                                 self.mixer.remove_input(id);
                             }
                             if let Some(id) = action_toggle_ov1 {
-                                self.mixer.toggle_overlay_1(id);
+                                self.apply_command(ProductionCommand::ToggleOverlay1 { input: id });
                             }
                         });
                     });
@@ -555,7 +565,7 @@ impl eframe::App for OpenVideoMixApp {
                             ui.label(RichText::new("MASTER").strong());
                             let mut vol = self.mixer.master_bus.volume;
                             if ui.add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical().text("Vol")).changed() {
-                                self.mixer.master_bus.volume = vol;
+                                self.apply_command(ProductionCommand::SetMasterVolume { volume: vol });
                             }
                         });
 
@@ -632,7 +642,10 @@ impl eframe::App for OpenVideoMixApp {
                             ui.heading("Configuración de Son");
                             ui.label(format!("Dispositivo de entrada: {}", self.mixer.settings.audio_device));
                             ui.label(format!("Frecuencia de mostraxe: {} Hz", self.mixer.settings.audio_sample_rate));
-                            ui.checkbox(&mut self.mixer.master_bus.muted, "Silenciar Master (Mute)");
+                            let mut muted = self.mixer.master_bus.muted;
+                            if ui.checkbox(&mut muted, "Silenciar Master (Mute)").changed() {
+                                self.apply_command(ProductionCommand::SetMasterMute { muted });
+                            }
                         }
                         2 => {
                             ui.heading("Dispositivos de Captura Detectados");
