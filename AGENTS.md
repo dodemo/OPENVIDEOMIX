@@ -7,10 +7,10 @@ Benvido/a. Este documento define o contexto, a arquitectura, as normas de enxeñ
 ## 1. Visión e Obxectivo do Proxecto
 
 **OPENVIDEOMIX** é unha alternativa aberta (Licenza MIT), modular e de alto rendemento a programas de realización en directo como vMix, OBS Studio e TriCaster.
-- **Linguaxe**: Rust puro (con foco en seguridade de memoria, latencia mínima e concorrencia).
-- **Interface Gráfica (GUI)**: `egui` + `eframe` (renderizado directo acelerado por GPU, 0% Chromium/Electron, fluidez máxima).
-- **Plataforma de destino**: Linux e Windows (multiplataforma nativa).
-- **Estándar de Cadencia**: **50.00 FPS PAL Broadcast** (20.0ms por cadro), con opcións para 59.94p e 60p.
+- **Linguaxe**: Rust como implementación actual; pontes nativas xustificadas por probas e licenzas son admisibles.
+- **Interface Gráfica (GUI)**: `egui` + `eframe` na versión actual; medir rendemento antes de considerala definitiva e manter o compositor independente.
+- **Plataforma de destino**: Windows, Linux e macOS (Intel e Apple Silicon), obrigatorias desde o inicio.
+- **Estándar obxectivo**: vídeo 50/1 fps (20 ms por fotograma), ademais de 25/1, 60000/1001 e 60/1. A cadencia da GUI non acredita cadencia de saída.
 - **Estudo Completo de vMix e OBS**: Consulta obrigatoriamente [docs/VMIX_OBS_ANALYSIS.md](docs/VMIX_OBS_ANALYSIS.md) para comprender o paradigma de *Inputs*, as canles de *Overlay 1-4*, o bus de son e os 5 alicerces da realización televisiva.
 
 ---
@@ -39,15 +39,17 @@ OPENVIDEOMIX/
 
 ---
 
-## 3. Estado Actual da Implementación (v0.1.0-alpha)
+## 3. Estado da implementación (verificar sempre o README e a CI)
 
-- ✅ **Dobre Monitor Broadcast**: Monitor **PREVIEW** (recadro verde) e **PROGRAM** (recadro vermello ON AIR).
-- ✅ **Transicións**: `CUT` instantáneo, `FADE` (500ms), `MERGE`, `WIPE` e fader **T-Bar** interactivo con interpolación en tempo real.
-- ✅ **Explorador de Arquivos Nativo (`rfd`)**: O botón *"ENGADIR Rótulo PNG (Explorador)"* abre o explorador nativo do sistema operativo para seleccionar ficheiros PNG/WebP/JPG con transparencia.
-- ✅ **Superposición con Transparencia Alfa (Canle `[OV1]`)**: Os gráficos e rótulos cargados superpóñense sobre o monitor de PROGRAM con canal alfa RGBA real.
-- ✅ **Xestión de Entradas**: Botón `[✕]` en cada tarxeta para pechar ou eliminar entradas sen orfandade de estado.
-- ✅ **Cadencia 50.00 FPS PAL Real**: Xerador de barras SMPTE con Timecode e indicador de movemento a 50Hz exactos (20ms/cadro).
-- ✅ **Panel de Axustes (`F1` / Botón)**: Modais para Vídeo (Resolución e FPS), Son e Escáner de dispositivos `/dev/video*`.
+- **Operativo no núcleo:** estados e ordes tipadas de realización, CUT lóxico, compositor RGBA de referencia en CPU e probas de píxeles.
+- **GUI:** Preview/Program, imaxes PNG/WebP/JPG e un overlay de demostración. A GUI non constitúe unha saída audiovisual codificada.
+- **MIDI:** MIDI Learn, perfís e adaptación opcional; falta proba con hardware físico.
+- **OpenDeck:** complemento OpenAction independente e API local autenticada; falta validación sobre dispositivos reais e feedback continuo.
+- **Captura real:** GStreamer está proposto nas PR #22 e #23. Non describir estas funcións como integradas en `main` ata fusionar as PR e completar as probas.
+- **Non operativo en produción:** compositor GPU conectado ao fluxo de saída, audio real, gravación, RTMP, sincronización A/V, PTZ e 1080p50 verificado. Os medidores e contadores de GUI poden ser simulados.
+- **Licenzas:** GStreamer require auditoría de plugins/códecs; libobs non é unha dependencia aprobada do proxecto MIT.
+
+O estado válido é o comprobado no código e CI, non o indicado por capturas de pantalla ou documentación antiga. Consultar [README.md](README.md) e [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -72,7 +74,8 @@ Descrición breve e clara da función ou corrección que se quere acadar.
 ### ✅ Criterios de Aceptación (DoD)
 - [ ] O código compila sen avisos (`cargo check`).
 - [ ] A función pódese probar visualmente na interface de `egui`.
-- [ ] Non se rompe a compatibilidade cos 50 FPS nin coas entradas existentes.
+- [ ] Non se rompe o reloxo de vídeo nin as entradas existentes; demostrar cadencia de saída medida cando a función o requira.
+- [ ] CI Windows, Linux e macOS (arm64 e Intel cando dispoñible), e probas sen hardware para fontes e estados.
 ```
 
 ---
