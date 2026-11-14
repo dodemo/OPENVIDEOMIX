@@ -137,11 +137,7 @@ pub struct ReferenceOutput {
 }
 
 impl ReferenceOutput {
-    pub fn add_source(
-        &mut self,
-        input: InputId,
-        capacity: usize,
-    ) -> Result<(), FrameQueueError> {
+    pub fn add_source(&mut self, input: InputId, capacity: usize) -> Result<(), FrameQueueError> {
         let queue = FrameQueue::new(capacity)?;
         self.sources.insert(input, queue);
         Ok(())
@@ -190,12 +186,7 @@ impl ReferenceOutput {
         let background = match take {
             Some(take) => {
                 let destination = self.sample(take.destination, output_pts_ns)?;
-                transition(
-                    &program_frame,
-                    &destination,
-                    take.transition,
-                    take.progress,
-                )?
+                transition(&program_frame, &destination, take.transition, take.progress)?
             }
             None => program_frame,
         };
@@ -255,10 +246,7 @@ mod tests {
             Err(FrameQueueError::NonMonotonicInput)
         );
         assert_eq!(queue.frame_at(10).unwrap().unwrap().pixels[0], 1);
-        assert_eq!(
-            queue.frame_at(9),
-            Err(FrameQueueError::NonMonotonicOutput)
-        );
+        assert_eq!(queue.frame_at(9), Err(FrameQueueError::NonMonotonicOutput));
     }
 
     #[test]
@@ -325,7 +313,10 @@ mod tests {
 
     #[test]
     fn invalid_capacity_and_invalid_transition_are_rejected() {
-        assert!(matches!(FrameQueue::new(0), Err(FrameQueueError::InvalidCapacity)));
+        assert!(matches!(
+            FrameQueue::new(0),
+            Err(FrameQueueError::InvalidCapacity)
+        ));
         let mut output = ReferenceOutput::default();
         output.add_source(1, 1).unwrap();
         output.push(1, frame(0, [0, 0, 0, 255])).unwrap();

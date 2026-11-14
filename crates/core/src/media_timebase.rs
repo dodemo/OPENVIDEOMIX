@@ -37,8 +37,8 @@ pub fn video_frame_at_ns(timestamp_ns: u64, rate: FrameRate) -> Option<u64> {
     let numerator = (u128::from(timestamp_ns) + 1)
         .checked_mul(u128::from(rate.numerator))?
         .checked_sub(1)?;
-    let denominator = u128::from(NANOSECONDS_PER_SECOND)
-        .checked_mul(u128::from(rate.denominator))?;
+    let denominator =
+        u128::from(NANOSECONDS_PER_SECOND).checked_mul(u128::from(rate.denominator))?;
     u64::try_from(numerator / denominator).ok()
 }
 
@@ -48,8 +48,7 @@ pub fn audio_sample_pts_ns(sample_index: u64, sample_rate_hz: u32) -> Option<u64
     if sample_rate_hz == 0 {
         return None;
     }
-    let scaled = u128::from(sample_index)
-        .checked_mul(u128::from(NANOSECONDS_PER_SECOND))?;
+    let scaled = u128::from(sample_index).checked_mul(u128::from(NANOSECONDS_PER_SECOND))?;
     u64::try_from(scaled / u128::from(sample_rate_hz)).ok()
 }
 
@@ -71,10 +70,7 @@ mod tests {
                 Some(index * 20_000_000)
             );
         }
-        assert_eq!(
-            video_frame_at_ns(999_999_999, FrameRate::PAL_50),
-            Some(49)
-        );
+        assert_eq!(video_frame_at_ns(999_999_999, FrameRate::PAL_50), Some(49));
         assert_eq!(
             video_frame_at_ns(1_000_000_000, FrameRate::PAL_50),
             Some(50)
@@ -86,14 +82,8 @@ mod tests {
         let rate = FrameRate::new(60_000, 1_001).unwrap();
         assert_eq!(video_frame_pts_ns(1, rate), Some(16_683_333));
         // 60,000 frames at 60000/1001 fps is exactly 1001 seconds.
-        assert_eq!(
-            video_frame_pts_ns(60_000, rate),
-            Some(1_001_000_000_000)
-        );
-        assert_eq!(
-            video_frame_at_ns(1_001_000_000_000, rate),
-            Some(60_000)
-        );
+        assert_eq!(video_frame_pts_ns(60_000, rate), Some(1_001_000_000_000));
+        assert_eq!(video_frame_at_ns(1_001_000_000_000, rate), Some(60_000));
     }
 
     #[test]
