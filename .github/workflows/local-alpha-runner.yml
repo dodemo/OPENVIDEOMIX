@@ -1,0 +1,32 @@
+name: Local Windows Alpha runner checks
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/local_alpha_loop.py'
+      - 'tests/test_local_alpha_loop.py'
+      - 'START-OPENVIDEOMIX-AGENT.cmd'
+      - 'opencode.jsonc'
+      - '.github/workflows/local-alpha-runner.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runner:
+    name: Independent runner / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Python syntax
+        run: python -m py_compile scripts/local_alpha_loop.py tests/test_local_alpha_loop.py
+      - name: Runner safety and behavior
+        run: python -m unittest discover -s tests -p test_local_alpha_loop.py -v
