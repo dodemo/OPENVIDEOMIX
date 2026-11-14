@@ -1,5 +1,7 @@
 #[cfg(feature = "gstreamer-capture")]
 use crate::capture::{CameraEvent, CameraSession};
+#[cfg(feature = "gstreamer-capture")]
+use crate::capture_devices::{discover_video_devices, CameraDeviceInfo};
 #[cfg(feature = "midi-input")]
 use crate::midi_input::MidiInputService;
 #[cfg(feature = "local-control-api")]
@@ -31,6 +33,10 @@ pub struct OpenVideoMixApp {
     pub loaded_textures: HashMap<InputId, TextureHandle>,
     #[cfg(feature = "gstreamer-capture")]
     capture_sessions: HashMap<InputId, CameraSession>,
+    #[cfg(feature = "gstreamer-capture")]
+    discovered_cameras: Vec<CameraDeviceInfo>,
+    #[cfg(feature = "gstreamer-capture")]
+    camera_discovery_rx: Option<std::sync::mpsc::Receiver<Result<Vec<CameraDeviceInfo>, String>>>,
     #[cfg(feature = "midi-input")]
     midi_ports: Vec<String>,
     #[cfg(feature = "midi-input")]
@@ -59,6 +65,10 @@ impl OpenVideoMixApp {
             loaded_textures: HashMap::new(),
             #[cfg(feature = "gstreamer-capture")]
             capture_sessions: HashMap::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            discovered_cameras: Vec::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            camera_discovery_rx: None,
             #[cfg(feature = "midi-input")]
             midi_ports: Vec::new(),
             #[cfg(feature = "midi-input")]
@@ -71,6 +81,8 @@ impl OpenVideoMixApp {
             midi_learn: None,
         };
         app.refresh_video_devices();
+        #[cfg(feature = "gstreamer-capture")]
+        app.begin_camera_discovery();
         #[cfg(feature = "midi-input")]
         app.refresh_midi_ports();
         #[cfg(feature = "local-control-api")]
@@ -198,6 +210,48 @@ impl OpenVideoMixApp {
             let commands = self.midi_mapper.process(event, &self.mixer);
             for command in commands {
                 self.apply_command(command);
+            }
+        }
+    }
+
+    #[cfg(feature = "gstreamer-capture")]
+    fn begin_camera_discovery(&mut self) {
+        if self.camera_discovery_rx.is_some() {
+            return;
+        }
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        self.camera_discovery_rx = Some(receiver);
+        std::thread::spawn(move || {
+            let result = discover_video_devices();
+            let _ = sender.send(result);
+        });
+    }
+
+    #[cfg(feature = "gstreamer-capture")]
+    fn poll_camera_discovery(&mut self) {
+        let outcome = self.camera_discovery_rx.as_ref().and_then(|receiver| {
+            match receiver.try_recv() {
+                Ok(result) => Some(result),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("A exploración de cámaras rematou inesperadamente".into()))
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            }
+        });
+        if let Some(result) = outcome {
+            self.camera_discovery_rx = None;
+            match result {
+                Ok(cameras) => {
+                    self.discovered_cameras = cameras;
+                    self.status_notification = Some(format!(
+                        "{} fontes de vídeo GStreamer detectadas",
+                        self.discovered_cameras.len()
+                    ));
+                }
+                Err(message) => {
+                    self.discovered_cameras.clear();
+                    self.status_notification = Some(message);
+                }
             }
         }
     }
@@ -592,6 +646,8 @@ impl eframe::App for OpenVideoMixApp {
         self.update_simulation();
         #[cfg(feature = "gstreamer-capture")]
         self.poll_camera(ctx);
+        #[cfg(feature = "gstreamer-capture")]
+        self.poll_camera_discovery();
         #[cfg(feature = "midi-input")]
         self.poll_midi();
 
@@ -1122,6 +1178,33 @@ impl eframe::App for OpenVideoMixApp {
                                 for dev in &self.connected_v4l2_devices {
                                     ui.label(format!("✅ Dispositivo dispoñible: {}", dev));
                                 }
+                            }
+                            #[cfg(feature = "gstreamer-capture")]
+                            {
+                                ui.separator();
+                                ui.label("Cámaras GStreamer (Windows, Linux e macOS)");
+                                if ui.button("Explorar cámaras GStreamer").clicked() {
+                                    self.begin_camera_discovery();
+                                }
+                                if self.camera_discovery_rx.is_some() {
+                                    ui.spinner();
+                                    ui.label("Explorando dispositivos en segundo fío...");
+                                } else if self.discovered_cameras.is_empty() {
+                                    ui.label("Non hai cámaras listadas ou o provedor de GStreamer non está dispoñible.");
+                                } else {
+                                    for camera in &self.discovered_cameras {
+                                        ui.collapsing(
+                                            format!("{} ({})", camera.display_name, camera.device_class),
+                                            |ui| {
+                                                ui.label("Capacidades anunciadas:");
+                                                ui.monospace(&camera.capabilities);
+                                            },
+                                        );
+                                    }
+                                }
+                                ui.label(
+                                    "Esta lista só identifica dispositivos. A selección e a captura por ID físico están pendentes.",
+                                );
                             }
                         }
                         #[cfg(feature = "midi-input")]
