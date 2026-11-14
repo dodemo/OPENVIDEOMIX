@@ -10,7 +10,6 @@ use std::sync::{
     Arc,
 };
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
 
 use gst::prelude::*;
 use gstreamer as gst;
@@ -39,7 +38,7 @@ impl CameraSession {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || {
-            if let Err(message) = run_capture(&sender, &worker_stop) {
+            if let Err(message) = run_capture(&sender, &worker_stop, "autovideosrc") {
                 let _ = sender.try_send(CameraEvent::Error(message));
             }
         });
@@ -60,17 +59,18 @@ impl Drop for CameraSession {
     }
 }
 
-fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool) -> Result<(), String> {
+fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool, source: &str) -> Result<(), String> {
     gst::init().map_err(|e| format!("GStreamer: {e}"))?;
 
     // A conservative working format is used until device capability
     // enumeration and hardware-dependent negotiation are implemented.
     // 'autovideosrc' chooses a platform-specific camera source.
-    let element = gst::parse::launch(
-        "autovideosrc ! videoconvert ! videoscale ! videorate ! \
+    let pipeline_description = format!(
+        "{source} ! videoconvert ! videoscale ! videorate ! \
          video/x-raw,format=RGBA,width=640,height=360,framerate=30/1 ! \
-         appsink name=framesink emit-signals=false sync=false max-buffers=2 drop=true",
-    )
+         appsink name=framesink emit-signals=false sync=false max-buffers=2 drop=true"
+    );
+    let element = gst::parse::launch(&pipeline_description)
     .map_err(|e| format!("Non se puido crear o pipeline de webcam: {e}"))?;
 
     let pipeline = element
@@ -109,6 +109,9 @@ fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool) -> Result<()
         }
 
         let Some(sample) = sink.try_pull_sample(gst::ClockTime::from_mseconds(100)) else {
+            if sink.is_eos() {
+                break Err("A webcam deixou de enviar fotogramas".to_string());
+            }
             continue;
         };
         let Some(caps) = sample.caps() else {
@@ -157,4 +160,42 @@ fn run_capture(sender: &SyncSender<CameraEvent>, stop: &AtomicBool) -> Result<()
 
     let _ = pipeline.set_state(gst::State::Null);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn synthetic_video_produces_real_rgba_frames() {
+        // No physical device required. This needs GStreamer base plugins.
+        let (tx, rx) = mpsc::sync_channel(3);
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || {
+            run_capture(&tx, &worker_stop, "videotestsrc is-live=true pattern=ball")
+        });
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut valid_frame = false;
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(250)) {
+                Ok(CameraEvent::Frame(frame)) => {
+                    valid_frame = frame.width == 640
+                        && frame.height == 360
+                        && frame.rgba.len() == 640 * 360 * 4;
+                    if valid_frame {
+                        break;
+                    }
+                }
+                Ok(CameraEvent::Error(message)) => panic!("Pipeline de proba fallou: {message}"),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        let result = worker.join().expect("O worker non debe fallar");
+        result.expect("O pipeline non debe fallar");
+        assert!(valid_frame, "Non chegou un fotograma RGBA válido");
+    }
 }
