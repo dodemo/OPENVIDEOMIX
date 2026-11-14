@@ -18,6 +18,14 @@ As probas físicas requiren executar o programa no PC grande: **Codex Cloud non 
 
 **Ata acadar esta Alpha, pospoñer** ampliación de MIX/WIPE/Stinger, RTMP, novos buses/AFV/PFL, melloras xenéricas da GUI e reescrituras GPU especulativas. Corrixir rendemento medido cando sexa bloqueo real. Conservar CI multiplataforma. Sen API de IA de pago nin servizos adicionais.
 
+## P1 obrigatoria: autorrealización multimodal por boca e voz
+
+[Fito #47 — detección multimodal de falante e perfís de autorrealización](https://github.com/dodemo/OPENVIDEOMIX/issues/47), acordado co propietario. Tras dispoñer da Alpha funcional no PC grande e de fontes físicas validadas (#46), implementar identificación de quen fala mediante movementos de boca/beizos + actividade/pegada de voz e calibración previa. Cada perfil gardará participantes, rótulos, cámara/plano asignados, plano xeral de reserva e regras de cambio automático.
+
+Regras innegociables: rostro/boca visible para confirmar, voz sen boca correspondente → plano xeral, fala simultánea → plano configurable de seguridade; **calquera CUT ou orde de realización manual suspende AUTO e só o técnico pode reactivala expresamente**, nunca cun temporizador. Obxectivo inicial de atraso de decisión ≤500 ms, a verificar fisicamente. Inferencia local, sen API de IA de pagamento, sen bloquear compositor 1080p50. Integración no bus de comandos e futuro soporte multiplataforma.
+
+A [issue #2](https://github.com/dodemo/OPENVIDEOMIX/issues/2) amplía isto con recortes virtuais desde unha cámara 4K/180°/360°; **non condiciona** a realización automática desde varias cámaras físicas.
+
 ## Completado en `main` (alcance limitado)
 
 - [x] Repositorio MIT e workspace Rust con `core` e escritorio `eframe/egui`.
@@ -54,7 +62,7 @@ As probas físicas requiren executar o programa no PC grande: **Codex Cloud non 
 
 - [ ] Completar feedback de tally e subscricións para OpenDeck/Stream Deck, macros e reconexión.
 - [ ] Probas físicas de control MIDI e OpenDeck, sen atribuír soporte a modelos non verificados.
-- [ ] Funcións de IA opt-in só despois da estabilidade do fluxo principal.
+- [ ] [#47](https://github.com/dodemo/OPENVIDEOMIX/issues/47): sistema obrigatorio de autorrealización IA multimodal, perfís gardables, calibración, plano xeral de seguridade e prioridade manual absoluta; iniciar tras a Alpha funcional de #46. A activación AUTO é voluntaria para o técnico.
 
 ## Criterios de aceptación
 
