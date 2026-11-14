@@ -29,6 +29,10 @@ pub struct RecordingStats {
     /// Frames accepted from the caller, distinct from encoded buffers.
     pub submitted_video_frames: u64,
     pub encoded_video_frames: u64,
+    /// Output timeline slots through the last submitted frame, including gaps.
+    pub timeline_video_frames: u64,
+    pub missing_video_frames: u64,
+    pub media_duration_ns: u64,
     pub submitted_audio_samples_per_channel: u64,
     /// Wall-clock time spent draining the encoder and muxer on stop.
     pub finalize_duration: Duration,
@@ -43,6 +47,7 @@ pub struct ProgramRecorder {
     profile: VideoProfile,
     frame_bytes: u64,
     frames: u64,
+    next_frame_index: u64,
     audio_samples: u64,
     encoded: Arc<AtomicU64>,
     path: PathBuf,
@@ -157,6 +162,7 @@ impl ProgramRecorder {
             profile,
             frame_bytes,
             frames: 0,
+            next_frame_index: 0,
             audio_samples: 0,
             encoded,
             path: path.to_owned(),
@@ -169,11 +175,19 @@ impl ProgramRecorder {
         Ok(recorder)
     }
 
-    /// Exact number of PCM sample frames needed with the next video frame.
-    /// Fractional rates alternate counts without accumulating rounded periods.
+    /// Exact PCM sample frames per channel for the next contiguous frame.
     pub fn next_audio_samples_per_channel(&self) -> Result<u64, String> {
-        let next = self
-            .frames
+        self.required_audio_samples_for_frame(self.next_frame_index)
+    }
+
+    /// Supplied PCM must cover all time since the previous accepted frame,
+    /// including skipped video slots. No silence is generated for a gap.
+    /// Frame zero establishes the recording origin; indices are then monotonic.
+    pub fn required_audio_samples_for_frame(&self, frame_index: u64) -> Result<u64, String> {
+        if frame_index < self.next_frame_index || (self.frames == 0 && frame_index != 0) {
+            return Err("Frame index must begin at zero and increase without repeats".into());
+        }
+        let next = frame_index
             .checked_add(1)
             .ok_or("Recording frame index overflow")?;
         let samples = u128::from(next)
@@ -190,11 +204,31 @@ impl ProgramRecorder {
     /// method never captures a window or approximates the GUI display.
     /// Caller errors leave the session usable; downstream errors terminate it.
     pub fn write_frame(&mut self, frame: &RgbaFrame, pcm: &[f32]) -> Result<(), String> {
+        self.write_frame_at(self.next_frame_index, frame, pcm)
+    }
+
+    /// Record at an explicit frame index relative to the recording origin.
+    /// Gaps retain their video PTS; PCM must cover the complete elapsed interval.
+    /// At most one second of PCM may be submitted in one bounded transaction.
+    pub fn write_frame_at(
+        &mut self,
+        frame_index: u64,
+        frame: &RgbaFrame,
+        pcm: &[f32],
+    ) -> Result<(), String> {
         if self.failed {
             return Err("Recording has failed".into());
         }
-        let samples = self.next_audio_samples_per_channel()?;
+        let samples = self.required_audio_samples_for_frame(frame_index)?;
         let expected_pcm = samples.checked_mul(CHANNELS).ok_or("PCM size overflow")?;
+        let pcm_bytes = expected_pcm
+            .checked_mul(4)
+            .ok_or("PCM byte size overflow")?;
+        if pcm_bytes > self.audio.max_bytes() {
+            return Err(
+                "Audio interval exceeds the bounded one-second recording transaction".into(),
+            );
+        }
         if frame.width != self.profile.width
             || frame.height != self.profile.height
             || frame.pixels.len() as u64 != self.frame_bytes
@@ -203,10 +237,10 @@ impl ProgramRecorder {
         {
             return Err("Program dimensions, packed RGBA, or 48 kHz stereo PCM do not match the recording profile".into());
         }
-        let pts = video_frame_pts_ns(self.frames, self.profile.frame_rate)
+        let pts = video_frame_pts_ns(frame_index, self.profile.frame_rate)
             .ok_or("Video timestamp overflow")?;
         let next_pts = video_frame_pts_ns(
-            self.frames.checked_add(1).ok_or("Frame index overflow")?,
+            frame_index.checked_add(1).ok_or("Frame index overflow")?,
             self.profile.frame_rate,
         )
         .ok_or("Video timestamp overflow")?;
@@ -228,7 +262,7 @@ impl ProgramRecorder {
                 || self
                     .audio
                     .current_level_bytes()
-                    .checked_add(expected_pcm * 4)
+                    .checked_add(pcm_bytes)
                     .is_none_or(|bytes| bytes > self.audio.max_bytes())
             {
                 return Err("Recording encoder backpressure: bounded queue is full".into());
@@ -256,6 +290,7 @@ impl ProgramRecorder {
             return Err(error);
         }
         self.frames += 1;
+        self.next_frame_index = frame_index + 1;
         self.audio_samples = end_samples;
         Ok(())
     }
@@ -307,6 +342,10 @@ impl ProgramRecorder {
             path: self.path.clone(),
             submitted_video_frames: self.frames,
             encoded_video_frames: self.encoded.load(Ordering::Relaxed),
+            timeline_video_frames: self.next_frame_index,
+            missing_video_frames: self.next_frame_index - self.frames,
+            media_duration_ns: video_frame_pts_ns(self.next_frame_index, self.profile.frame_rate)
+                .ok_or("Recording duration overflow")?,
             submitted_audio_samples_per_channel: self.audio_samples,
             finalize_duration: started.elapsed(),
         })

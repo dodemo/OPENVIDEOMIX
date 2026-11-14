@@ -49,11 +49,14 @@ the shared stats even when the output channel is full.
 
 ## Recording boundary and limits
 
-Packets retain real timeline gaps. Do not submit this worker's lossy delivery stream
-to ProgramRecorder as though every output tick were present: that recorder currently
-assigns contiguous frame indices. Recording integration must explicitly handle gaps
-and synchronized PCM before enabling desktop RECORD. There is no recording thread,
-encoder, audio callback, real-time priority or GPU implementation in this worker.
+Packets retain real timeline gaps. Use ProgramRecorder's explicit `write_frame_at`
+API with rebased tick indices and `required_audio_samples_for_frame`, supplying
+actual PCM for the complete elapsed interval. The contiguous `write_frame` API
+must not be used to erase skipped/dropped worker slots. Choosing the recording
+origin, matching the output cadence and providing synchronized captured/mixed
+PCM still require integration before desktop RECORD can be enabled. There is no
+recording thread, encoder, audio callback, real-time priority or GPU implementation
+in this worker.
 Stats are counters/snapshots, not a qualified broadcast-performance metric.
 
 ## Tests and continuation
