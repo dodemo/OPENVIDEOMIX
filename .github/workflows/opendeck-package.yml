@@ -1,0 +1,79 @@
+name: Package OpenAction plugin development builds
+
+on:
+  pull_request:
+    paths:
+      - 'apps/openvideomix-opendeck/**'
+      - '.github/workflows/opendeck-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Plugin bundle / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            extension: ""
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            extension: ".exe"
+          - os: macos-15
+            target: aarch64-apple-darwin
+            extension: ""
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            extension: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/openvideomix-opendeck
+      - name: Build native plugin binary
+        run: cargo build --release --manifest-path apps/openvideomix-opendeck/Cargo.toml
+      - name: Create plugin bundle with matching executable
+        shell: bash
+        env:
+          TARGET_TRIPLE: ${{ matrix.target }}
+          EXE_SUFFIX: ${{ matrix.extension }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, shutil, zipfile
+          target = os.environ["TARGET_TRIPLE"]
+          ext = os.environ["EXE_SUFFIX"]
+          root = pathlib.Path("apps/openvideomix-opendeck")
+          assets = root / "assets" / "com.openvideomix.control.sdPlugin"
+          bundle = pathlib.Path("dist") / assets.name
+          if bundle.exists():
+              shutil.rmtree(bundle)
+          shutil.copytree(assets, bundle)
+          executable = root / "target" / "release" / ("openvideomix-opendeck" + ext)
+          assert executable.is_file(), f"Missing native executable: {executable}"
+          manifest = json.loads((bundle / "manifest.json").read_text())
+          target_name = manifest["CodePaths"][target]
+          assert target_name, f"No CodePaths mapping for {target}"
+          shutil.copy2(executable, bundle / target_name)
+          if os.name != "nt":
+              (bundle / target_name).chmod(0o755)
+          package = pathlib.Path("dist") / ("openvideomix-opendeck-" + target + ".zip")
+          with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:
+              for p in bundle.rglob("*"):
+                  if p.is_file():
+                      info = zipfile.ZipInfo(str(p.relative_to(bundle.parent)).replace(os.sep, "/"))
+                      info.external_attr = (p.stat().st_mode & 0xffff) << 16
+                      info.compress_type = zipfile.ZIP_DEFLATED
+                      archive.writestr(info, p.read_bytes())
+          print(f"Created test bundle: {package}")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openvideomix-opendeck-${{ matrix.target }}
+          path: dist/openvideomix-opendeck-${{ matrix.target }}.zip
+          if-no-files-found: error
