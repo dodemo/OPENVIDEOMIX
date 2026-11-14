@@ -36,7 +36,8 @@ pub struct OpenVideoMixApp {
     #[cfg(feature = "gstreamer-capture")]
     discovered_cameras: Vec<CameraDeviceInfo>,
     #[cfg(feature = "gstreamer-capture")]
-    camera_discovery_rx: Option<std::sync::mpsc::Receiver<Result<Vec<CameraDeviceInfo>, String>>>,
+    camera_discovery_rx:
+        Option<std::sync::mpsc::Receiver<Result<Vec<CameraDeviceInfo>, String>>>,
     #[cfg(feature = "midi-input")]
     midi_ports: Vec<String>,
     #[cfg(feature = "midi-input")]
@@ -1194,10 +1195,13 @@ impl eframe::App for OpenVideoMixApp {
                                 } else {
                                     for camera in &self.discovered_cameras {
                                         ui.collapsing(
-                                            format!("{} ({})", camera.display_name, camera.device_class),
+                                            format!(
+                                                "{} ({})",
+                                                camera.display_name, camera.device_class
+                                            ),
                                             |ui| {
                                                 ui.label("Capacidades anunciadas:");
-                                                ui.monospace(&camera.capabilities);
+                                                ui.monospace(camera.capabilities.as_str());
                                             },
                                         );
                                     }
