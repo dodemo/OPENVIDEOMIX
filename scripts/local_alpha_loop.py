@@ -113,7 +113,38 @@ def work_branch() -> tuple[bool, str]:
     return True, "Resumed or created the Windows Alpha feature branch"
 
 
+def configure_media_paths() -> None:
+    """Support an approved app-local GStreamer SDK without changing system PATH."""
+    values = [
+        os.environ.get("GSTREAMER_1_0_ROOT_MSVC_X86_64"),
+        str(ROOT / "local-tools" / "gstreamer" / "1.0" / "msvc_x86_64"),
+        str(ROOT / "local-tools" / "gstreamer"),
+    ]
+    for value in values:
+        if not value:
+            continue
+        base = Path(value)
+        bin_dir = base / "bin"
+        if not any((bin_dir / filename).is_file()
+                   for filename in ("gst-inspect-1.0.exe", "gst-inspect-1.0")):
+            continue
+        path_parts = os.environ.get("PATH", "").split(os.pathsep)
+        if str(bin_dir) not in path_parts:
+            os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+        pkg = [base / "lib" / "pkgconfig", base / "share" / "pkgconfig"]
+        existing = os.environ.get("PKG_CONFIG_PATH", "").split(os.pathsep)
+        new = [str(item) for item in pkg if item.is_dir() and str(item) not in existing]
+        if new:
+            os.environ["PKG_CONFIG_PATH"] = os.pathsep.join(new + [x for x in existing if x])
+        plugins = base / "lib" / "gstreamer-1.0"
+        if plugins.is_dir():
+            os.environ["GST_PLUGIN_PATH_1_0"] = str(plugins)
+        os.environ["GSTREAMER_1_0_ROOT_MSVC_X86_64"] = str(base)
+        return
+
+
 def media_ready() -> tuple[bool, str]:
+    configure_media_paths()
     if not shutil.which("gst-inspect-1.0"):
         return False, "GStreamer executable absent in development environment"
     if not shutil.which("pkg-config"):
@@ -145,6 +176,8 @@ def checks(round_id: int) -> dict:
          "reason": "requires approved physical hardware testing"},
         {"name": "sustained-1080p50", "status": "NOT_TESTED",
          "reason": "requires decoded media evidence and GPU benchmark without Ollama VRAM contention"},
+        {"name": "self-contained-windows-installer", "status": "NOT_TESTED",
+         "reason": "must bundle GStreamer, plugins, codecs and other runtime dependencies"},
         {"name": "offline-clean-machine", "status": "NOT_TESTED",
          "reason": "requires an isolated offline Windows installation test"},
     ])
