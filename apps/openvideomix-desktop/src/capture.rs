@@ -290,6 +290,32 @@ mod tests {
     }
 
     #[test]
+    fn synthetic_capture_preserves_monotonic_source_pts() {
+        let session = CameraSession::start_synthetic();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut last_pts = None;
+        let mut observed = 0;
+        while observed < 5 && Instant::now() < deadline {
+            match session.receiver.recv_timeout(Duration::from_millis(250)) {
+                Ok(CameraEvent::Frame(frame)) => {
+                    let pts = frame.pts_ns.expect("videotestsrc should provide a source PTS");
+                    if let Some(previous) = last_pts {
+                        assert!(pts > previous, "source timestamps must be monotonic");
+                    }
+                    last_pts = Some(pts);
+                    observed += 1;
+                }
+                Ok(CameraEvent::Error(message)) => {
+                    panic!("Synthetic timestamp test failed: {message}")
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        assert_eq!(observed, 5, "insufficient captured timestamped frames");
+    }
+
+    #[test]
     fn two_synthetic_sources_capture_concurrently() {
         // Two independent pipelines simulate distinct video inputs without
         // taking ownership of a physical webcam.
