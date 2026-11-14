@@ -7,6 +7,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import signal
 from pathlib import Path
 import re
 import shutil
@@ -31,25 +32,49 @@ def capture(argv: list[str], timeout: int = 30) -> tuple[int, str]:
         return 127, type(error).__name__
 
 
+def stop_tree(proc: subprocess.Popen) -> None:
+    """Stop only this command and its descendants; never stop the Ollama server."""
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        # A cancelled opencode/cargo command may have launched child processes.
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=15, check=False)
+    else:
+        os.killpg(proc.pid, signal.SIGTERM)
+    try:
+        proc.wait(timeout=8)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
 def logged(name: str, argv: list[str], timeout: int, round_id: int) -> dict:
     logfile = PRIVATE / f"{round_id:02d}-{name}.log"
     start = time.monotonic()
     outcome = "FAIL"
     code = None
+    print(f"  Checking {name} (limit {timeout}s)...", flush=True)
     try:
         with logfile.open("w", encoding="utf-8", errors="replace") as stream:
+            process_options = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                               if os.name == "nt" else {"start_new_session": True})
             proc = subprocess.Popen(argv, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
-                                    stdin=subprocess.DEVNULL, text=True)
+                                    stdin=subprocess.DEVNULL, text=True, **process_options)
             try:
                 code = proc.wait(timeout=timeout)
                 outcome = "PASS" if code == 0 else "FAIL"
             except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+                stop_tree(proc)
                 outcome = "TIMEOUT"
+            except KeyboardInterrupt:
+                stop_tree(proc)
+                raise
     except (OSError, FileNotFoundError) as error:
         logfile.write_text(type(error).__name__, encoding="utf-8")
         outcome = "BLOCKED"
+    print(f"  {name}: {outcome} ({round(time.monotonic() - start, 1)}s)", flush=True)
     return {"name": name, "status": outcome, "exit_code": code,
             "seconds": round(time.monotonic() - start, 1), "log": logfile.name}
 
