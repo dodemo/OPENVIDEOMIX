@@ -1,0 +1,63 @@
+name: Rust cross-platform quality gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-desktop:
+    name: Base / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-3-dev libxkbcommon-dev libwayland-dev libasound2-dev libudev-dev
+      - name: Verify formatting
+        id: formatting
+        continue-on-error: true
+        run: cargo fmt --all -- --check
+      - name: Check default features
+        run: cargo check --workspace
+      - name: Unit tests without GStreamer
+        run: cargo test --workspace
+      - name: Clippy default features
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Enforce formatting
+        if: always() && steps.formatting.outcome == 'failure'
+        run: exit 1
+
+  gstreamer-linux:
+    name: GStreamer synthetic frames / Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install GStreamer and native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libgtk-3-dev libxkbcommon-dev libwayland-dev libasound2-dev libudev-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-tools
+      - name: Check capture feature
+        run: cargo check -p openvideomix-desktop --features gstreamer-capture
+      - name: Synthetic RGBA pipeline smoke test
+        run: cargo test -p openvideomix-desktop --features gstreamer-capture
+      - name: Clippy capture feature
+        run: cargo clippy -p openvideomix-desktop --all-targets --features gstreamer-capture -- -D warnings
