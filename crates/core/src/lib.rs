@@ -4,9 +4,12 @@
 //! Audio Buses, Overlays, Transitions, and Settings models.
 
 pub mod camera;
+pub mod camera_registry;
+pub mod media_timebase;
 pub mod video_profile;
 
 pub mod reference_compositor;
+pub mod reference_output;
 
 pub mod commands;
 pub mod midi;
