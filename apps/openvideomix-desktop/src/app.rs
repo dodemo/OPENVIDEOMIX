@@ -115,7 +115,8 @@ impl OpenVideoMixApp {
 
     #[cfg(feature = "midi-input")]
     fn save_midi_profile(&mut self) {
-        let profile = MidiProfile::new("OPENVIDEOMIX controller", self.midi_mapper.bindings.clone());
+        let profile =
+            MidiProfile::new("OPENVIDEOMIX controller", self.midi_mapper.bindings.clone());
         if let Err(message) = profile.validate() {
             self.status_notification = Some(format!("Perfil MIDI inválido: {message}"));
             return;
@@ -164,7 +165,8 @@ impl OpenVideoMixApp {
                 let count = profile.bindings.len();
                 self.midi_mapper.replace_bindings(profile.bindings);
                 self.midi_learn = None;
-                self.status_notification = Some(format!("Perfil MIDI cargado: {count} asignacións"));
+                self.status_notification =
+                    Some(format!("Perfil MIDI cargado: {count} asignacións"));
             }
             Err(message) => {
                 self.status_notification = Some(format!("Erro ao cargar perfil MIDI: {message}"));
