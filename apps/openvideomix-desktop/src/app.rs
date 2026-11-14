@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 /// The console displays at most 640x360 pixels; production buffers keep their
 /// full requested dimensions. This avoids repeated full-HD GUI color conversion.
+#[cfg(any(feature = "gstreamer-capture", test))]
 fn monitor_image(width: usize, height: usize, rgba: &[u8]) -> egui::ColorImage {
     let step = width.div_ceil(640).max(height.div_ceil(360)).max(1);
     let size = [width.div_ceil(step), height.div_ceil(step)];
