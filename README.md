@@ -6,6 +6,12 @@
 
 > **Estado: prototipo técnico, non apto para emisións en produción.** A interface inclúe elementos de demostración. Non existe aínda un fluxo completo de captura → composición → audio → codificación → gravación/emisión. Ningún indicador de refresco da GUI acredita 1080p50 de saída.
 
+## Perfil audiovisual predeterminado
+
+**O perfil de produción predeterminado é 1920 × 1080 progresivo a 50/1 FPS (1080p50), con audio a 48 kHz.** Preview, Program, composición e futuras saídas de gravación/emisión deben respectar este perfil salvo modificación explícita do usuario.
+
+Un dispositivo que anuncie só 1080p30 ou unha resolución inferior non se tratará como fonte 1080p50 nativa. A aplicación debe indicar a necesidade de conversión ou permitir seleccionar outro modo compatible; non se debe efectuar unha degradación silenciosa nin confundir FPS solicitados con FPS medidos. As fontes sintéticas e probas reducidas a 640 × 360 / 30 FPS son exclusivamente probas de captura e non cumpren os criterios de aceptación de produción.
+
 ## Funcións dispoñibles en `main`
 
 | Área | Que existe hoxe | Limitación importante |
