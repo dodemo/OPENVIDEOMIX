@@ -22,6 +22,8 @@ pub struct TimedFrame {
 pub enum FrameQueueError {
     InvalidCapacity,
     NonMonotonicInput,
+    /// The output has already passed this frame's timestamp.
+    LateInput,
     NonMonotonicOutput,
 }
 
@@ -51,6 +53,12 @@ impl FrameQueue {
     /// Reject timestamps that move backwards or repeat within one source.
     /// Keep the newest frames when the bounded queue fills.
     pub fn push(&mut self, frame: TimedFrame) -> Result<(), FrameQueueError> {
+        if self
+            .last_target_ns
+            .is_some_and(|target| frame.pts_ns <= target)
+        {
+            return Err(FrameQueueError::LateInput);
+        }
         if self
             .pending
             .back()
@@ -244,6 +252,19 @@ mod tests {
             queue.frame_at(9),
             Err(FrameQueueError::NonMonotonicOutput)
         );
+    }
+
+    #[test]
+    fn late_arriving_frame_does_not_rewind_playout() {
+        let mut queue = FrameQueue::new(3).unwrap();
+        queue.push(frame(0, [10, 0, 0, 255])).unwrap();
+        assert_eq!(queue.frame_at(20).unwrap().unwrap().pixels[0], 10);
+        assert_eq!(
+            queue.push(frame(10, [99, 0, 0, 255])),
+            Err(FrameQueueError::LateInput)
+        );
+        queue.push(frame(40, [40, 0, 0, 255])).unwrap();
+        assert_eq!(queue.frame_at(40).unwrap().unwrap().pixels[0], 40);
     }
 
     #[test]
