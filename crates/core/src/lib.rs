@@ -3,6 +3,10 @@
 //! Provides the primary broadcast models: Inputs, Mixer State,
 //! Audio Buses, Overlays, Transitions, and Settings models.
 
+pub mod commands;
+pub mod midi;
+pub mod vmix_compat;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
