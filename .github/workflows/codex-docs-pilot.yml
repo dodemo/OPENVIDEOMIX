@@ -1,0 +1,139 @@
+name: OPENVIDEOMIX Codex documentation pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Open GitHub issue number with label codex-ready
+        required: true
+        type: number
+  issues:
+    types: [labeled]
+
+permissions: {}
+concurrency:
+  group: openvideomix-codex-pilot
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    if: >-
+      vars.OPENVIDEOMIX_CODEX_ENABLED == 'true' &&
+      (github.event_name == 'workflow_dispatch' || github.event.label.name == 'codex-ready')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      issue_number: ${{ steps.issue.outputs.issue_number }}
+      has_patch: ${{ steps.patch.outputs.has_patch }}
+    steps:
+      - name: Checkout without stored credentials
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Verify issue and stage task
+        id: issue
+        uses: actions/github-script@v7
+        env:
+          TARGET_ISSUE: ${{ github.event_name == 'workflow_dispatch' && inputs.issue_number || github.event.issue.number }}
+        with:
+          script: |
+            const fs = require('fs');
+            const issueNumber = Number(process.env.TARGET_ISSUE);
+            if (!Number.isSafeInteger(issueNumber) || issueNumber < 1) throw new Error('Invalid issue number');
+            const {data: issue} = await github.rest.issues.get({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: issueNumber
+            });
+            if (issue.pull_request || issue.state !== 'open') throw new Error('Expected an open issue');
+            const ready = issue.labels.some(l => (typeof l === 'string' ? l : l.name) === 'codex-ready');
+            if (!ready) throw new Error('Issue must have the codex-ready label');
+            const body = (issue.body || '').slice(0, 12000);
+            fs.writeFileSync('codex-task.md', `Issue #${issueNumber}: ${issue.title}\n\n${body}\n`);
+            core.setOutput('issue_number', String(issueNumber));
+      - name: Run Codex in restricted workspace
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ':workspace'
+          prompt-file: .github/codex/pilot-instructions.md
+      - name: Validate documentation-only patch
+        id: patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f codex-task.md
+          mapfile -d '' files < <(git diff HEAD --name-only -z)
+          if [ "${#files[@]}" -eq 0 ]; then echo 'Codex made no tracked changes'; exit 1; fi
+          while IFS=$'\t' read -r status path; do
+            if [ "$status" != 'M' ]; then
+              echo "Pilot only permits modified existing files, not $status: $path"
+              exit 1
+            fi
+          done < <(git diff HEAD --name-status)
+          if [ -n "$(git diff HEAD --summary)" ]; then
+            echo 'File mode, rename or type changes are not allowed'; exit 1
+          fi
+          for path in "${files[@]}"; do
+            case "$path" in
+              README.md|docs/*.md) ;;
+              *) echo "Disallowed changed file: $path"; exit 1 ;;
+            esac
+          done
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo 'Untracked files are not allowed in the pilot'; exit 1
+          fi
+          git diff HEAD --check
+          git diff HEAD --binary > codex-pilot.patch
+          if [ "$(wc -c < codex-pilot.patch)" -gt 200000 ]; then
+            echo 'Pilot patch is too large'; exit 1
+          fi
+          echo 'has_patch=true' >> "$GITHUB_OUTPUT"
+      - name: Transfer vetted patch only
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-pilot-patch
+          path: codex-pilot.patch
+          retention-days: 3
+          if-no-files-found: error
+
+  publish:
+    needs: implement
+    if: needs.implement.result == 'success' && needs.implement.outputs.has_patch == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout clean repository
+        uses: actions/checkout@v5
+      - name: Retrieve documentation patch
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-pilot-patch
+          path: ${{ runner.temp }}/codex-pilot
+      - name: Apply patch to clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check "$RUNNER_TEMP/codex-pilot/codex-pilot.patch"
+          git apply "$RUNNER_TEMP/codex-pilot/codex-pilot.patch"
+          git diff --check
+      - name: Open draft PR for human and CI review
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ github.token }}
+          branch: codex/pilot-docs-issue-${{ needs.implement.outputs.issue_number }}
+          base: main
+          draft: always-true
+          delete-branch: false
+          title: 'docs: Codex pilot for issue #${{ needs.implement.outputs.issue_number }}'
+          body: |
+            Codex documentation-only pilot for issue #${{ needs.implement.outputs.issue_number }}.
+            Output is unverified until CI and human review. Do not auto-merge.
+          commit-message: 'docs: Codex pilot for issue #${{ needs.implement.outputs.issue_number }}'
+          add-paths: |
+            README.md
+            docs/
