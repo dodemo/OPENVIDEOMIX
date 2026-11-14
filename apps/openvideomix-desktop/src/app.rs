@@ -20,7 +20,7 @@ impl OpenVideoMixApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self {
             mixer: MixerState::default(),
-            status_notification: Some("OPENVIDEOMIX listo. 50 FPS PAL activado por defecto.".into()),
+            status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
             show_settings: false,
             settings_tab: 0,
             last_frame_time: Instant::now(),
@@ -187,7 +187,7 @@ impl OpenVideoMixApp {
                         painter.text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
-                            format!("📹 SINAL DE WEBCAM EN DIRECTO ({})\nCaptura V4L2 50 FPS Activa", device_path),
+                            format!("Dispositivo USB detectado: {}\nCAPTURA NON IMPLEMENTADA", device_path),
                             egui::FontId::proportional(16.0),
                             Color32::from_rgb(90, 220, 255),
                         );
@@ -216,7 +216,7 @@ impl OpenVideoMixApp {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        format!("🖥️ CAPTURA DE ESCRITORIO (Monitor #{})\nWayland / PipeWire Display Portal (50 FPS)", display_id),
+                        format!("ESCRITORIO #{}\nVista de demostración: sen captura real", display_id),
                         egui::FontId::proportional(16.0),
                         Color32::WHITE,
                     );
@@ -226,7 +226,7 @@ impl OpenVideoMixApp {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        format!("▶ VÍDEO: {}\nReprodución multimedia en bucle", path),
+                        format!("VÍDEO: {}\nMarcador de posición: sen decodificación real", path),
                         egui::FontId::proportional(15.0),
                         Color32::from_rgb(150, 200, 255),
                     );
@@ -315,17 +315,10 @@ impl eframe::App for OpenVideoMixApp {
                 ui.label(RichText::new(format!("@ {}", self.mixer.settings.frame_rate)).color(Color32::from_rgb(0, 255, 180)).strong());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let stream_color = if self.mixer.is_streaming { Color32::from_rgb(220, 40, 40) } else { Color32::from_rgb(45, 50, 60) };
-                    let stream_btn = egui::Button::new(RichText::new(if self.mixer.is_streaming { "🔴 EMITINDO" } else { "📡 EMITIR" }).color(Color32::WHITE)).fill(stream_color);
-                    if ui.add(stream_btn).clicked() {
-                        self.mixer.is_streaming = !self.mixer.is_streaming;
-                    }
-
-                    let rec_color = if self.mixer.is_recording { Color32::from_rgb(220, 40, 40) } else { Color32::from_rgb(45, 50, 60) };
-                    let rec_btn = egui::Button::new(RichText::new(if self.mixer.is_recording { "⏹ GRAVANDO" } else { "⏺ GRAVAR" }).color(Color32::WHITE)).fill(rec_color);
-                    if ui.add(rec_btn).clicked() {
-                        self.mixer.is_recording = !self.mixer.is_recording;
-                    }
+                    ui.add_enabled(false, egui::Button::new("EMITIR (pendente)"))
+                        .on_disabled_hover_text("RTMP/SRT non están implementados. Este botón non inicia unha emisión.");
+                    ui.add_enabled(false, egui::Button::new("GRAVAR (pendente)"))
+                        .on_disabled_hover_text("A gravación real aínda non está implementada. Este botón non crea un ficheiro.");
 
                     let settings_btn = egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(Color32::WHITE))
                         .fill(if self.show_settings { Color32::from_rgb(0, 120, 200) } else { Color32::from_rgb(45, 50, 60) });
@@ -340,11 +333,11 @@ impl eframe::App for OpenVideoMixApp {
         // BOTTOM STATUS BAR
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("FPS REAL: {:.1}", self.mixer.fps)).strong().color(Color32::from_rgb(0, 230, 160)));
+                ui.label(RichText::new(format!("Refresco UI (demo): {:.1}", self.mixer.fps)).strong().color(Color32::from_rgb(0, 230, 160)));
                 ui.separator();
-                ui.label(format!("CPU: {:.1}%", self.mixer.cpu_usage_pct));
+                ui.label(format!("CPU (demo): {:.1}%", self.mixer.cpu_usage_pct));
                 ui.separator();
-                ui.label(format!("Webcams detectadas: {}", self.connected_v4l2_devices.len()));
+                ui.label(format!("Nós V4L2 (Linux): {}", self.connected_v4l2_devices.len()));
                 ui.separator();
 
                 if let Some(msg) = &self.status_notification {
@@ -627,7 +620,7 @@ impl eframe::App for OpenVideoMixApp {
                             });
                             ui.add_space(6.0);
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("Taxa de Cadros (FPS Reais):").strong());
+                                ui.label(RichText::new("Perfil de cadencia previsto:").strong());
                                 egui::ComboBox::from_id_salt("fps_combo")
                                     .selected_text(&self.mixer.settings.frame_rate)
                                     .show_ui(ui, |ui| {
@@ -639,7 +632,7 @@ impl eframe::App for OpenVideoMixApp {
                                     });
                             });
                             ui.add_space(4.0);
-                            ui.label(RichText::new("ℹ️ 50.00 FPS é o estándar de emisión europeo (PAL / TVG / EBU). O motor axustará a cadencia de refresco exacta a 20.0ms por cadro.").weak());
+                            ui.label(RichText::new("ℹ️ O perfil 50p fixa o obxectivo de saída. A GUI actual só axusta a frecuencia de repintado; aínda non existe un motor de saída 1080p50 validado.").weak());
                         }
                         1 => {
                             ui.heading("Configuración de Son");
@@ -674,7 +667,7 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
-        // Exact frame timing based on target FPS (e.g. 50.00 FPS -> exactly 20.0ms per frame)
+        // UI-only repaint scheduling. Not a guaranteed media/output frame cadence.
         let target_fps = self.mixer.settings.target_fps_value();
         let frame_interval_millis = (1000.0 / target_fps) as u64;
         ctx.request_repaint_after(Duration::from_millis(frame_interval_millis));
