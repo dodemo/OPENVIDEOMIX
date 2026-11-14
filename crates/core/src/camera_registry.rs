@@ -59,7 +59,7 @@ pub fn persistent_selection(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::camera::{CameraIdentity, CameraCapabilities};
+    use crate::camera::CameraCapabilities;
 
     fn camera(name: &str, serial: Option<&str>, node: &str) -> CameraCapabilities {
         CameraCapabilities {
