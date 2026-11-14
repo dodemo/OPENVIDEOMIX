@@ -24,15 +24,19 @@ pub fn video_frame_pts_ns(frame_index: u64, rate: FrameRate) -> Option<u64> {
     u64::try_from(numerator / u128::from(rate.numerator)).ok()
 }
 
-/// Frame containing the specified elapsed timestamp, floor-rounded.
+/// Return the frame whose floor-rounded PTS is at or before this time.
 ///
-/// The function is the inverse timeline lookup, not an FPS measurement.
-/// Some very high theoretical rates can have several frames in one ns.
+/// The inverse must use the exact same floor-rounding rule as
+/// `video_frame_pts_ns`. A naive floor(t * fps) returns frame 0 at the
+/// nanosecond where frame 1 starts for fractional rates such as 60000/1001.
+/// This is a timeline lookup, not a measured capture/output FPS.
 pub fn video_frame_at_ns(timestamp_ns: u64, rate: FrameRate) -> Option<u64> {
     if rate.numerator == 0 || rate.denominator == 0 {
         return None;
     }
-    let numerator = u128::from(timestamp_ns).checked_mul(u128::from(rate.numerator))?;
+    let numerator = (u128::from(timestamp_ns) + 1)
+        .checked_mul(u128::from(rate.numerator))?
+        .checked_sub(1)?;
     let denominator = u128::from(NANOSECONDS_PER_SECOND)
         .checked_mul(u128::from(rate.denominator))?;
     u64::try_from(numerator / denominator).ok()
@@ -90,6 +94,24 @@ mod tests {
             video_frame_at_ns(1_001_000_000_000, rate),
             Some(60_000)
         );
+    }
+
+    #[test]
+    fn fractional_rate_inverse_matches_floor_rounded_frame_start() {
+        let rate = FrameRate::new(60_000, 1_001).unwrap();
+        for frame in 1..=10_000 {
+            let start = video_frame_pts_ns(frame, rate).unwrap();
+            assert_eq!(
+                video_frame_at_ns(start, rate),
+                Some(frame),
+                "frame {frame} must be selected at its exact integer PTS"
+            );
+            assert_eq!(
+                video_frame_at_ns(start - 1, rate),
+                Some(frame - 1),
+                "the previous nanosecond belongs to the prior frame"
+            );
+        }
     }
 
     #[test]
