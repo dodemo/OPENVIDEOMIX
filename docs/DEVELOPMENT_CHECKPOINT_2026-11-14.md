@@ -1,5 +1,230 @@
 # Development continuation checkpoint — 2026-11-14
 
+## Encargo actual #43: integración e reparación de CI
+
+A petición explícita de executar #43 resolve a antiga pregunta de alcance de #41.
+As seccións anteriores de traballo conservadas máis abaixo son históricas: non
+autorizan novas funcións nin bloquean a integración solicitada agora. Non se
+activou #39, Antigravity, axentes paralelos, APIs de IA de pago nin novos servizos.
+O alcance é consolidar as PR existentes; a primeira versión segue incompleta.
+
+Estado antes da validación final de #42:
+
+| PR | Head verificado | Merge en main | CI de calidade |
+| --- | --- | --- | --- |
+| #25 | `20e2829d2b8a332c7f8e4aa62d13462a7e29751b` | `e1528aa2c7ae33d44de7c33c9b5bd1dcebc7a390` | [43630304508](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43630304508) |
+| #34 | `55d5ca48f9f0c5c6c2bf399f330381133b7f44cf` | `99bca30bbc0f8bdab05b410f068a36c63f6bc9de` | [43632303986](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43632303986) |
+| #32 | `26e031eef46ae89e2bf5a594d4a177a85dcac3c8` | `12d5a4caac92012bddc9e1c375f60e66f496973e` | [43633325413](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43633325413) |
+| #35 | `c0c4fc2f35448b4d0db68630bd3696843a2f364a` | `8370514a77d3ebd3206730c5e55352ebadd401d6` | [43634685231](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43634685231) |
+| #36 | `e3f281583bf5dd82cb65f88650dca1e64fbb3516` | `58b452379b73b29f0b1e31521295158f7c0557c4` | [43634751818](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43634751818) |
+| #37 | `8afd9363bb1c2dc3a3bd6583d8ff002e5c3f8217` | `128923fd4f2280990c711559a7949c84c0bc31c8` | [43634766878](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43634766878) |
+
+Todos os workflows aplicables deses heads remataron con éxito antes de fusionar.
+Usáronse merges normais, sen force push nin cambios das proteccións ou workflows.
+O conflito #35 era a exportación de `camera_registry`: conservouse xunto ao ingreso
+de captura. O reloxo compartido de #34 xa estaba en #35; non se duplicou.
+
+Para evitar recompilar a mesma integración, #36/#37 recibiron os heads actualizados
+das súas bases por merges normais. Só se cambiaron a main tras fusionar a predecesora.
+`git merge-tree --write-tree` comprobou que as árbores resultantes eran idénticas
+ás validadas: #36 `6187dd404ed2dfab92efd04c244af4c4246516d6`; #37
+`e934478bd2d1591c182149621a4cbcc0f9187be0`. Os heads non cambiaron despois da CI.
+
+#42 incorpora agora main `128923f` por merge normal. A corrección `bc3b845` limita
+`monitor_image` a `cfg(any(feature = "gstreamer-capture", test))`: os consumidores
+reais requiren captura, e a proba de monitorización segue activa sen esa feature.
+Os fallos orixinais eran dead_code elevado a erro por Clippy nos builds Base/API
+sen GStreamer; non eran fallos inocuos nin se suprimiu o lint.
+[Log Base](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43631488677/job/132558871356),
+[log API](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43631488765/job/132558871528).
+Os sete workflows de `bc3b845` pasaron, incluídos
+[Base](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43632517266) e
+[API](https://github.com/dodemo/OPENVIDEOMIX/actions/runs/43632517251).
+O head que inclúe este checkpoint require a súa propia CI antes de fusionar.
+Consultar [#43](https://github.com/dodemo/OPENVIDEOMIX/issues/43) para o resultado
+final, o seu SHA exacto e os enlaces de todas as comprobacións finais.
+
+Nesta sesión non había Cargo nin GStreamer de desenvolvemento locais: a validación
+de código fíxose na CI existente. FFmpeg, FFprobe e o script conservado verificaron
+de novo o WebM histórico de #42: hash e JSON coinciden exactamente coa evidencia
+publicada (214 fotogramas, 12,46 s, 409 ocos, 17,17 fps efectivos, estéreo 48 kHz).
+É unha verificación do ficheiro sintético histórico, non unha nova proba da GUI
+ou do rendemento do head actual. Non hai cámaras/micrófonos físicos cualificados,
+sincronía física A/V, GPU nin 1080p50 sostido verificados. A cualificación multimedia
+opcional en Windows/macOS e os gates de distribución/licenzas de #33 seguen abertos.
+Non se engadiron dependencias nesta reparación nin código GPL; isto non é unha
+auditoría legal dos binarios distribuídos. Refs #3 #5 #6 #7 #8 #33 #41.
+
+Exclusión mutua desta sesión: `codex/continuation-lock`, creado atomicamente no
+target `e1528aa2c7ae33d44de7c33c9b5bd1dcebc7a390`. Liberar só ese ref, tras publicar
+este checkpoint e o resultado en #43; nunca eliminar ramas de código para recuperalo.
+
+## Historia anterior (superada polo encargo #43)
+
+## Handoff update: scope clarification pending after new audit #41
+
+Desktop PR: **[#42](https://github.com/dodemo/OPENVIDEOMIX/pull/42)**,
+branch `feat/desktop-program-output`, previously pushed head `035a547`.
+This is a documentation-only checkpoint; functional code remains d58dc08,
+99 all-feature tests passing. No later source changes or merges were made after
+reading the newly created audit #41. All earlier native evidence remains valid.
+
+New owner-authored #38/#40/#41 and closed #39 were read. #39 is a rejected,
+separately billed API pilot: never activate/reopen it. #40 is feasibility only,
+not authorization to run Antigravity; none was run. #41 explicitly requests a
+read-only audit, no feature implementation/merges/expensive builds, and a next
+task proposed but not automatically started. This differs from the standing
+continuation goal in this thread. A concise scope question was sent in this
+thread: continue the authorized development, or switch to read-only #41 and
+pause changes. **No reply had arrived at this checkpoint. Do not treat elapsed
+time as approval or let a scheduled continuation bypass this pending question.**
+Read-only inspection and preserving the already authorized work/checkpoint are
+safe. Resume source/merge/build work only once the thread clarifies the scope;
+if audit is chosen, do not automatically start the proposed implementation.
+
+The completed Galician audit is published at
+https://github.com/dodemo/OPENVIDEOMIX/issues/41#issuecomment-6882873095 .
+It distinguishes main/PR/demo/unverified capabilities, current merge order,
+platform CI limits, license/architecture alternatives, measured evidence and
+one proposed GPU Program milestone. It recommends retaining Rust/GStreamer,
+with an independent GPU compositor still provisional and no libobs integration
+without an explicit GPL/distribution decision. No new paid services, API keys,
+LLM API calls, agents or workflows were configured.
+
+Latest read-only CI query: #25 exact head `20e2829` and #32 `a831133` have all
+listed workflows completed successfully; no merge was performed while scope is
+pending. #35 is conflicting with its updated #32 base and needs normal integration
+later. #42 at `035a547` has incomplete required CI; no failed completed workflow
+was observed. Re-query current heads/checks before any later action.
+
+Additional bounded measurement, before the read-only clarification: isolated
+non-live videotestsrc RGBA 1920×1080 50/1 → videoconvert → vp8enc deadline=1,
+cpu-used=8, threads=4 → fakesink sync=false, 100 frames each: SMPTE 48.07 fps,
+red 50.49, checkers-8 43.85. Results retained in
+`docs/evidence/desktop-program-2026-11-14/encoder-isolation.json`.
+This includes generation/conversion/startup and is offline video-only, not a
+controlled sustained broadcast benchmark. It suggests resource/copy contention
+in the complete app but does not identify a dominant cost or prove GPU/encoder
+interoperability. Do not infer a rewrite or a 50 fps pass from this measurement.
+
+Current attached workspace: `/workspace/work/recording`; local Rust/GStreamer
+header/runtime environment can be restored with `. /workspace/work/env.sh`.
+Detailed successful logs are `/workspace/work/desktop-final-{check,clippy,tests}.log`.
+Each review worktree uses its own Cargo target directory. No physical devices or
+hardware acceleration are available. Do not share Cargo target directories across
+worktrees: prior stale artifacts caused false missing-module errors.
+
+At clean handoff, verify c32fe5994e175f6df823570d9a9294db8fcde3a6 is still this
+run's owned continuation-lock target and release only that ref after pushing this
+checkpoint. Future continuations must check the scope question first; while it is
+pending, make no repository/code changes and do not repeat broad experiments.
+The single existing native automation remains enabled; no additional automation
+was created and no completion claim was made.
+
+## Latest continuation: desktop actual Program and test-tone recording
+
+Active source branch: `feat/desktop-program-output`.
+Functional source commit: `67f69cf`.
+Latest tested code: `d58dc08` (normal merge of current main; adds camera identity).
+This checkpoint/evidence update is a subsequent documentation commit.
+
+**First release remains incomplete.** The synthetic four-input desktop path now
+works end to end: actual GStreamer 1080p50 test sources → Preview → typed CUT →
+actual CPU Program → timed VP8/Vorbis WebM with explicit generated 48 kHz stereo
+PCM. Preview and Program swap. Same full-resolution Program frame is monitored
+and supplied to recording; only GUI monitoring is downsampled. No T-Bar/TAKE.
+MIX/WIPE and RTMP remain disabled. Legacy GUI/physical/image/file sources are not
+yet registered in this production graph. No captured microphone audio is implied.
+
+Capture/Program monitoring and recording run independently of GUI subscriber
+polling and of encoder backpressure. Recording delivery is bounded to two packets;
+drops are counted and output frame indices preserve video gaps. A complex encoder
+frame may wait up to one second off the GUI; beyond bounded PCM/encoder limits,
+finalize a partial file with an error. Directory approval and no-overwrite are
+required; ephemeral recording intents are never replayed from saved state.
+Observed egui repeated-pass double CUT is fixed with per-input deduplication.
+Source lookback is explicit (100 ms), not a timestamp rewrite or physical sync.
+
+### Verified evidence
+
+Linux only, Rust 1.100.0, GStreamer 1.26.2, four-CPU quota, Xvfb/software OpenGL.
+Format, all-feature workspace check, all-target/all-feature Clippy and all-feature
+workspace tests pass at d58dc08: **99 tests** (64 core + 10 library + 5 GUI binary +
+5 ingress + 1 desktop media service + 6 worker + 8 recording). Default workspace,
+capture-only and recording-only compilation checks also pass. Manifest metadata
+warnings from the new Cargo version remain distinct from compiler/Clippy failures.
+
+The actual release application was driven with native mouse/keyboard events:
+start four sources, CUT SMPTE to Program, select red in Preview, start recording,
+CUT to red, stop/save, quit cleanly. Screenshots and actual WebM are retained in
+`docs/evidence/desktop-program-2026-11-14/`. Independent FFprobe/FFmpeg verification:
+12.46 seconds, 214 decoded VP8 frames, 1920×1080, nominal 50/1, **17.17 effective
+frames/s**, 409 missing slots, max gap 200 ms; Vorbis 48 kHz stereo, 598,592 decoded
+sample frames, 10.7 ms padding, RMS −10.91 dBFS. Decoded pixels switch from bars to
+red at frame 81, with 133 red frames. The Program monitor delivery queue had zero
+drops; scheduler/source misses are separate. Encoder saturation is unresolved.
+No real-time 1080p50, hardware GPU, captured A/V sync, physical device, Windows or
+macOS runtime claim. No physical owner workstation access occurred.
+
+See `docs/DESKTOP_PROGRAM_TEST.md` for the mandatory public-reference Study → Build
+→ Check → Refine evidence and exact run instructions, plus
+`docs/WINDOWS_HARDWARE_TEST.md` for the future RTX 4080 SUPER bench procedure.
+`python scripts/verify_program_recording.py docs/evidence/desktop-program-2026-11-14/program.webm`
+repeats the retained file verification. Craft Anything's README, manifest and both
+actual root licenses were read; only its method was applied, no code incorporated.
+
+### Live integration state (re-query exact heads before mutations)
+
+Merged with all available exact-head CI jobs passing and empty review threads:
+#28 rational timing (c32fe59), #27 camera identity (ff9c032), #23 concurrent capture
+(779e818), #30 atomic reference output (72777d4), #31 default profile (90dd140).
+Current inspected main: `90dd1409f561b61fb3c8d4c1c210652f2343df62`.
+No issue was closed. Rulesets API returned an empty list; branch protection remains
+HTTP 403 to this integration. No safeguards changed, no forced history rewrite.
+
+- #25: `20e2829`, base main, normally integrated main including #31. Local 59 core
+  tests and format pass; fresh integrated CI pending at checkpoint creation.
+- #32: `a831133`, retargeted main after #30/#31. Normal main merge resolves only
+  the camera_registry export conflict. Local 59 core tests/Clippy and format pass;
+  fresh integrated media/platform CI pending. Reintegrate/revalidate after #25.
+- #34: e8452ba, base #25. After #25 merges, normally integrate main, retarget,
+  rerun full applicable checks and inspect review threads before merging.
+- #35: 48dd39b, requires #32 and #34; then retarget/main integration/full CI.
+- #36: b6ba79a, base #35; #37: fc6370b, base #36. Do not skip dependency gates.
+- Desktop branch: stacked on #37; includes a normal main merge. Publish/inspect
+  the new draft PR and keep it draft until its dependencies and required CI pass.
+
+Another remote branch, `chore/codex-github-coordination-pilot`, appeared during
+fetch. It was not modified or integrated. Preserve remote owner work.
+
+### Exact next executable work
+
+1. Inspect the new desktop PR checks at its exact pushed head; diagnose failures.
+   Complete pending dependency integrations above with normal merges and full CI.
+2. The desktop slice is functionally usable for test signals but recording is
+   below broadcast cadence. Measure capture/composition/encoding separately and
+   implement the real-time GPU Program path and explicit encoder negotiation,
+   keeping the actual Program tap and CPU reference as correctness oracle. Do
+   not hide this bottleneck by changing the default profile, inventing video
+   frames or shrinking timestamps. The cloud has software graphics only; record
+   adapter/backend identity and require physical GPU qualification later.
+3. Implement independently buffered real 48 kHz audio capture/mix and common-clock
+   mapping/drift management; then replace test tone only through an explicit
+   operator choice. Add decoded output tests and observable synchronization tests.
+4. Connect persistent physical camera identity/mode selection and other real
+   sources, then transitions/overlays/Stinger, streaming and control feedback.
+   Issue #33 lockfiles/security/license/SBOM/installers remain open release gates.
+
+A single enabled thread-attached recurring continuation exists. This interactive
+run owns `refs/heads/codex/continuation-lock` at c32fe5994e175f6df823570d9a9294db8fcde3a6;
+scheduled messages arriving while it is active do not create a second writer.
+At a clean handoff, push the latest complete checkpoint, update the automation to
+this branch, verify ownership and delete only this ephemeral ref. Never steal or
+expire a stale lock. The old separate automation remains paused. No subagents or
+external paid services were created. Future environment inheritance is not proof
+that a future run has executed successfully.
+
+
 ## Latest continuation: paced reference output worker (#36)
 
 Current branch: `feat/paced-reference-output`.

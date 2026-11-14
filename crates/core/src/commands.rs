@@ -16,6 +16,8 @@ pub enum ProductionCommand {
     SelectPreview { input: InputId },
     SelectProgram { input: InputId },
     Cut,
+    StartTestRecording { path: String },
+    StopRecording,
     ToggleOverlay1 { input: InputId },
     SetOverlay1 { input: Option<InputId> },
     SetInputVolume { input: InputId, volume: f32 },
@@ -33,6 +35,8 @@ pub enum CommandError {
     InvalidVolume,
     #[error("there is no preview source to take to Program")]
     NoPreview,
+    #[error("recording path must be nonempty and contain no NUL")]
+    InvalidRecordingPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -78,6 +82,21 @@ impl CommandDispatcher {
         command: ProductionCommand,
     ) -> Result<ProductionSnapshot, CommandError> {
         match command {
+            ProductionCommand::StartTestRecording { path } => {
+                if path.trim().is_empty() || path.contains('\0') {
+                    return Err(CommandError::InvalidRecordingPath);
+                }
+                state.recording_intent = Some(crate::RecordingIntent {
+                    revision: self.revision.wrapping_add(1),
+                    path: Some(path),
+                });
+            }
+            ProductionCommand::StopRecording => {
+                state.recording_intent = Some(crate::RecordingIntent {
+                    revision: self.revision.wrapping_add(1),
+                    path: None,
+                });
+            }
             ProductionCommand::SelectPreview { input } => {
                 require_input(state, input)?;
                 state.select_preview(input);
@@ -274,5 +293,47 @@ mod tests {
         assert_eq!(encoded, r#"{"action":"select_preview","args":{"input":3}}"#);
         let decoded: ProductionCommand = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, command);
+    }
+}
+
+#[cfg(test)]
+mod recording_intent_tests {
+    use super::*;
+    #[test]
+    fn recording_requests_share_dispatcher_but_do_not_claim_actual_recording() {
+        let mut state = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+        assert_eq!(
+            dispatcher.dispatch(
+                &mut state,
+                ProductionCommand::StartTestRecording {
+                    path: String::new()
+                }
+            ),
+            Err(CommandError::InvalidRecordingPath)
+        );
+        assert_eq!(dispatcher.revision(), 0);
+        assert!(state.recording_intent.is_none());
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::StartTestRecording {
+                    path: "recordings/test.webm".into(),
+                },
+            )
+            .unwrap();
+        assert_eq!(state.recording_intent.as_ref().unwrap().revision, 1);
+        assert!(!state.is_recording);
+        let restored: MixerState =
+            serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(
+            restored.recording_intent.is_none(),
+            "Opening a saved state must never replay a file-write request"
+        );
+        dispatcher
+            .dispatch(&mut state, ProductionCommand::StopRecording)
+            .unwrap();
+        assert!(state.recording_intent.as_ref().unwrap().path.is_none());
+        assert_eq!(state.recording_intent.as_ref().unwrap().revision, 2);
     }
 }

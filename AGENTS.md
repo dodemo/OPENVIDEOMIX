@@ -46,8 +46,8 @@ OPENVIDEOMIX/
 - **GUI:** Preview/Program, imaxes PNG/WebP/JPG e un overlay de demostración. A GUI non constitúe unha saída audiovisual codificada.
 - **MIDI:** MIDI Learn, perfís e adaptación opcional; falta proba con hardware físico.
 - **OpenDeck:** complemento OpenAction independente e API local autenticada; falta validación sobre dispositivos reais e feedback continuo.
-- **Captura real:** GStreamer está proposto nas PR #22 e #23. Non describir estas funcións como integradas en `main` ata fusionar as PR e completar as probas.
-- **Non operativo en produción:** compositor GPU conectado ao fluxo de saída, audio real, gravación, RTMP, sincronización A/V, PTZ e 1080p50 verificado. Os medidores e contadores de GUI poden ser simulados.
+- **Captura real:** #22/#23 están integradas en `main`; sesións GStreamer independentes. Esta rama engade un estudo sintético de catro fontes → CUT → Program CPU real → WebM con ton de proba. Ver `docs/DESKTOP_PROGRAM_TEST.md` para evidencias e perdas; non inferir cámaras físicas ou 1080p50 sostido.
+- **Non operativo en produción:** compositor GPU, audio capturado/mesturado, gravación 1080p50 sostida, RTMP, sincronización física A/V e PTZ. A gravación de proba declara os ocos reais; os medidores quedan a cero sen captura de audio. A GUI aínda conserva indicadores de demostración.
 - **Licenzas:** GStreamer require auditoría de plugins/códecs; libobs non é unha dependencia aprobada do proxecto MIT.
 
 O estado válido é o comprobado no código e CI, non o indicado por capturas de pantalla ou documentación antiga. Consultar [README.md](README.md) e [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -103,16 +103,18 @@ OPENVIDEOMIX debe soportar **Stream Deck/OpenDeck e controladores USB MIDI**, en
 
 ## Active autonomous assignment (2026-11-14)
 
-Read [docs/AUTONOMOUS_GOAL.md](docs/AUTONOMOUS_GOAL.md), the latest user assignment,
-then [docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md](docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md)
-and the live GitHub state before continuing. The product name is OPENVIDEOMIX.
-Apply clean-room Study -> Build -> Check -> Refine/Ready for each functional
-milestone, using observable vMix behavior/public documentation and original code.
-Prioritize a usable desktop capture/test video -> Preview -> CUT -> actual Program
--> synchronized playable recording slice. Do not stop merely at another reference
-library, PR or checkpoint. Issue #33 is a release gate alongside media acceptance.
-Windows/Linux/macOS Intel/Apple Silicon, 1080p50 and 48 kHz remain mandatory.
-No COMPLETE claim until the full first-release acceptance evidence is verified.
+The latest user assignment is [issue #43](https://github.com/dodemo/OPENVIDEOMIX/issues/43):
+integrate the existing PR chain and repair CI, without additional product features,
+separately billed APIs, external AI agents or new services. Read the latest section
+of [docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md](docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md)
+and live GitHub heads/checks before continuing. The broader
+[docs/AUTONOMOUS_GOAL.md](docs/AUTONOMOUS_GOAL.md) is historical context, not permission
+to expand this assignment. The old #41 scope question is resolved by #43.
+Retarget dependencies only after their predecessors are in main; merge only reviewed,
+compatible changes with successful applicable CI on their exact current heads.
+Preserve Windows/Linux/macOS Intel/Apple Silicon, 1080p50 and 48 kHz.
+Issue #33 remains a release gate. Integrating this chain does not complete the first
+release or qualify physical devices, real audio, GPU composition or live 1080p50.
 
 ### Serialized continuation
 

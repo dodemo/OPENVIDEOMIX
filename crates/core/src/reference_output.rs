@@ -232,7 +232,11 @@ impl ReferenceOutput {
                 frames[slot] = Some(self.sample(id, output_pts_ns)?);
             }
         }
-        let composed = overlay_stack(&background, &frames)?;
+        let composed = if frames.iter().all(Option::is_none) {
+            background
+        } else {
+            overlay_stack(&background, &frames)?
+        };
         // Commit only after all source lookups and pixel composition succeed.
         // Repeated IDs are safe: frame_at permits the same timestamp twice.
         for id in std::iter::once(program)

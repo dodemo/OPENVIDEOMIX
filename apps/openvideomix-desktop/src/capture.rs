@@ -74,6 +74,7 @@ impl Drop for CapturePipeline {
     }
 }
 
+#[derive(Clone)]
 pub struct CameraFrame {
     pub width: usize,
     pub height: usize,
@@ -109,11 +110,39 @@ impl CameraSession {
     }
 
     fn start_source(source: &'static str) -> Self {
+        Self::start_configured(source, None)
+    }
+
+    /// A full-HD test source feeds production directly; GUI frame polling is
+    /// an independent subscriber. Pattern is selected from a closed set.
+    pub fn start_production_test(
+        input: openvideomix_core::InputId,
+        pattern: u32,
+        target: crate::output_worker::OutputIngress,
+    ) -> Self {
+        let source = match pattern % 4 {
+            0 => "videotestsrc is-live=true pattern=smpte",
+            1 => "videotestsrc is-live=true pattern=solid-color foreground-color=0xffc02020",
+            2 => "videotestsrc is-live=true pattern=solid-color foreground-color=0xff2040c0",
+            _ => "videotestsrc is-live=true pattern=checkers-8",
+        };
+        Self::start_configured(source, Some((input, target)))
+    }
+
+    fn start_configured(
+        source: &'static str,
+        target: Option<(
+            openvideomix_core::InputId,
+            crate::output_worker::OutputIngress,
+        )>,
+    ) -> Self {
         let (sender, receiver) = mpsc::sync_channel(3);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || {
-            if let Err(message) = run_capture(&sender, &worker_stop, source) {
+            if let Err(message) =
+                run_capture_configured(&sender, &worker_stop, source, target.as_ref())
+            {
                 // Frames may fill the bounded queue. Keep the terminal error
                 // pending until the GUI drains a slot, unless capture is
                 // being stopped. A failed try_send would hide the failure.
@@ -146,10 +175,23 @@ impl Drop for CameraSession {
     }
 }
 
+#[cfg(test)]
 fn run_capture(
     sender: &SyncSender<CameraEvent>,
     stop: &AtomicBool,
     source: &str,
+) -> Result<(), String> {
+    run_capture_configured(sender, stop, source, None)
+}
+
+fn run_capture_configured(
+    sender: &SyncSender<CameraEvent>,
+    stop: &AtomicBool,
+    source: &str,
+    target: Option<&(
+        openvideomix_core::InputId,
+        crate::output_worker::OutputIngress,
+    )>,
 ) -> Result<(), String> {
     gst::init().map_err(|e| format!("GStreamer: {e}"))?;
     let timeline = CaptureTimeline::shared();
@@ -157,11 +199,16 @@ fn run_capture(
     // A conservative working format is used until device capability
     // enumeration and hardware-dependent negotiation are implemented.
     // 'autovideosrc' chooses a platform-specific camera source.
-    let pipeline_description = format!(
-        "{source} ! videoconvert ! videoscale ! videorate ! \
+    let pipeline_description = if target.is_some() {
+        let profile = openvideomix_core::video_profile::VideoProfile::default();
+        format!("{source} ! video/x-raw,width={},height={},framerate={}/{} ! videoconvert ! video/x-raw,format=RGBA ! appsink name=framesink emit-signals=false sync=false max-buffers=2 drop=true",profile.width,profile.height,profile.frame_rate.numerator,profile.frame_rate.denominator)
+    } else {
+        format!(
+            "{source} ! videoconvert ! videoscale ! videorate ! \
          video/x-raw,format=RGBA,width=640,height=360,framerate=30/1 ! \
          appsink name=framesink emit-signals=false sync=false max-buffers=2 drop=true"
-    );
+        )
+    };
     let element = gst::parse::launch(&pipeline_description)
         .map_err(|e| format!("Non se puido crear o pipeline de webcam: {e}"))?;
 
@@ -246,14 +293,20 @@ fn run_capture(
             pipeline.base_time(),
             timeline.epoch_ns,
         );
-        match sender.try_send(CameraEvent::Frame(CameraFrame {
+        let frame = CameraFrame {
             width,
             height,
             rgba,
             pts_ns,
             capture_pts_ns,
             duration_ns,
-        })) {
+        };
+        if let Some((input, target)) = target {
+            // Output has its own bounded ingress. A slow/paused GUI cannot
+            // throttle production. Count failures in the desktop service next.
+            let _ = target.try_submit(*input, frame.clone());
+        }
+        match sender.try_send(CameraEvent::Frame(frame)) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => break Ok(()),
         }

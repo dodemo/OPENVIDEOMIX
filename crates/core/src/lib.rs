@@ -145,6 +145,13 @@ impl Default for ProjectSettings {
     }
 }
 
+/// Ephemeral, typed request. Actual recording status comes from the output engine.
+#[derive(Debug, Clone)]
+pub struct RecordingIntent {
+    pub revision: u64,
+    pub path: Option<String>,
+}
+
 /// Global production state
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MixerState {
@@ -162,6 +169,8 @@ pub struct MixerState {
     pub headphones_bus: AudioBus,
     pub is_streaming: bool,
     pub is_recording: bool,
+    #[serde(skip)]
+    pub recording_intent: Option<RecordingIntent>,
     pub is_external_out: bool,
     pub fps: f32,
     pub cpu_usage_pct: f32,
@@ -221,6 +230,7 @@ impl Default for MixerState {
             headphones_bus: AudioBus::new("Auriculares"),
             is_streaming: false,
             is_recording: false,
+            recording_intent: None,
             is_external_out: false,
             fps: 50.0,
             cpu_usage_pct: 2.8,
