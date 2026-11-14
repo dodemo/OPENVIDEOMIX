@@ -3,6 +3,7 @@
 //! The server never mutates production state itself. Every request is
 //! handed to the GUI's existing command dispatcher and receives its result.
 //! Transport is disabled unless an explicit strong token is configured.
+//! Device plugins must use the authenticated localhost API, not mutate mixer state directly.
 
 use std::sync::{mpsc, Arc, RwLock};
 use std::thread::{self, JoinHandle};
