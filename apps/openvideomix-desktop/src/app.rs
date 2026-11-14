@@ -277,7 +277,7 @@ impl eframe::App for OpenVideoMixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_simulation();
 
-        // Keyboard Shortcuts (CUT with Space, FADE with Enter, 1..6 for inputs, F1 for Settings)
+        // Keyboard Shortcuts (CUT with Space/Enter; other transitions unavailable)
         if ctx.input(|i| i.key_pressed(Key::Space)) {
             self.mixer.cut();
         }
@@ -387,24 +387,18 @@ impl eframe::App for OpenVideoMixApp {
 
                     ui.add_space(4.0);
 
-                    if ui.add_sized([120.0, 30.0], egui::Button::new("FADE (500ms)")).clicked() {
-                        self.mixer.cut();
-                    }
-
-                    if ui.add_sized([120.0, 26.0], egui::Button::new("MERGE")).clicked() {
-                        self.mixer.cut();
-                    }
-
-                    if ui.add_sized([120.0, 26.0], egui::Button::new("WIPE")).clicked() {
-                        self.mixer.cut();
-                    }
+                    ui.add_enabled(false, egui::Button::new("FADE (pendente)"))
+                        .on_disabled_hover_text("FADE require composición interpolada de vídeo; non é un CUT.");
+                    ui.add_enabled(false, egui::Button::new("MERGE (pendente)"))
+                        .on_disabled_hover_text("MERGE aínda non produce unha transición visual.");
+                    ui.add_enabled(false, egui::Button::new("WIPE (pendente)"))
+                        .on_disabled_hover_text("WIPE require máscaras no compositor GPU.");
 
                     ui.add_space(8.0);
-                    ui.label(RichText::new("T-BAR FADER").weak());
+                    ui.label(RichText::new("T-BAR (pendente)").weak());
                     let mut tbar = self.mixer.tbar_position;
-                    if ui.add(egui::Slider::new(&mut tbar, 0.0..=1.0).vertical().show_value(false)).changed() {
-                        self.mixer.set_tbar(tbar);
-                    }
+                    ui.add_enabled(false, egui::Slider::new(&mut tbar, 0.0..=1.0).vertical().show_value(false))
+                        .on_disabled_hover_text("O T-Bar aínda non renderiza fotogramas de transición.");
                 });
 
                 // PROGRAM (PGM)
@@ -415,7 +409,7 @@ impl eframe::App for OpenVideoMixApp {
                         .unwrap_or("NINGÚN");
 
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("🔴 PROGRAM (ON AIR)").color(Color32::from_rgb(240, 50, 50)).strong());
+                        ui.label(RichText::new("PROGRAM (demostración)").color(Color32::from_rgb(240, 50, 50)).strong());
                         ui.label(format!("({})", program_name));
                     });
 
