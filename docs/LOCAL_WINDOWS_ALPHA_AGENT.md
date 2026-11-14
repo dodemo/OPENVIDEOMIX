@@ -18,6 +18,21 @@
 6. **Instrument a repeatable local validation command** and sanitized report capturing basic timings/ FPS/PTS gaps, encoded frame count, queue drops, CPU/GPU figures if genuinely measured, logs and exact binary commit. No personal path, hostname, tokens, video/audio biometric data or device IDs in publicly shared reports. A future physical 60-second and 30-minute test must be clearly marked PENDING if not executed.
 7. Keep Windows/Linux/macOS CI architecture intact. Work in small testable commits on the feature branch. Do NOT push, merge, modify GitHub settings, contact paid APIs, install system-wide software or destroy unrelated state without explicit owner authorization.
 
+## Local model selection and objective diagnostics
+
+**Do not claim the initial model is the best without a benchmark on this computer.** The Windows launcher currently selects `ollama/devstral-small-2:24b-instruct-2512-q4_K_M` intentionally: it is a code-specialized agentic 24B model with tool support. At approximately 15 GB of quantized weights, it has very little GPU-memory headroom on a 16 GB RTX 4080 SUPER, especially for larger context windows; watch actual offload/CPU use and tokens/s. The model weights on disk are **not** the whole VRAM requirement.
+
+Already installed alternatives (no extra downloads):
+- `ollama/qwen3.5:9b-q4_K_M` (~6.6 GB): first candidate for fast diagnostics, concise fixes and longer GPU-resident contexts.
+- `ollama/qwen3-coder-next:q4_K_M` (~51 GB): coder-specific 80B MoE with low active parameter count, but needs substantial RAM/CPU offload with this 16 GB GPU. Treat as an optional **measured** experiment, not an automatic switch for every task.
+- `ollama/devstral-small-2:24b-instruct-2512-q4_K_M`: initial deep code-edit candidate.
+
+Measure `ollama ps` (CPU/GPU placement), `nvidia-smi` (VRAM), wall-clock duration, token generation rate where exposed, tool-call failures, number of iterations, and actual Cargo/tests passing. For a meaningful A/B test, use the **same bounded task and acceptance criteria** on separate clean temporary worktrees or read-only tasks; don't edit the active feature branch concurrently. Do not benchmark models while another agent is modifying the repo. Prefer the model yielding valid fixes per hour, not the model with the largest parameter count.
+
+**Important for media performance**: do not measure 1080p50 GPU composition/encoding while Ollama still occupies most of the RTX VRAM. Before a **separate reproducible GPU media benchmark**, explicitly stop/unload the local LLM and verify GPU memory is actually free (`ollama ps` / `nvidia-smi`); the agent may reload afterward. Keep model measurement distinct from application-performance measurement. Never attribute an apparent software bottleneck to the application without checking GPU contention.
+
+For unattended operation, separate **agent generation** from a deterministic test runner that checks exit codes, produces independent media decode results and records hard pass/fail; have the agent read the report and implement the next narrow fix. A model's narrative cannot replace these acceptance checks. Publish only an owner-approved, sanitized report to GitHub; the local agent has no automatic access to ChatGPT's current conversation and ChatGPT cannot inspect the physical Windows session unless those diagnostics are shared through an authorized connector. Do not install a GitHub Actions self-hosted runner on the owner's personal PC for a public repository without a reviewed security design.
+
 ## Execution discipline
 - **Do not stop after making a plan or discovering a missing dependency.** Implement every part possible without the human, and record the precise unavoidable blocker if any.
 - Treat each loop as a focused continuation; read the checkpoint first and resume incomplete tasks, without redoing successful tests.
