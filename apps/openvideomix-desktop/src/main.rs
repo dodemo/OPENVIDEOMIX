@@ -1,4 +1,6 @@
 mod app;
+#[cfg(feature = "local-control-api")]
+mod remote_control;
 
 use app::OpenVideoMixApp;
 
