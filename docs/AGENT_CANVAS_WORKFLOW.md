@@ -12,6 +12,21 @@
 
 **Craft Anything methodology**, without installing another always-on service: **Study → Build → Check → Refine**. Read issue and actual code first, implement one bounded change, run deterministic tests, fix failures, open Draft PR. Product Craft Anything MCP may be evaluated later for UI comparison; it is not a substitute for independent AV tests.
 
+## Native OpenHands/Ollama fallback — recommended while OpenCode ACP fails
+
+**Verified local observations:** the owner's Ollama API responds and serves Devstral, OpenCode 2.3.0 supports `acp`, and OpenHands Agent Canvas reaches its backend (HTTP 200/201 and WebSocket 101). The OpenCode ACP conversation nevertheless fails at "Agent connection" before generating text; the exact internal cause is **not yet known**. Do not keep requesting DevTools screenshots or reinstall dependencies to troubleshoot blindly.
+
+**Prefer the upstream OpenHands agent itself instead of the extra ACP subprocess** for the first complete Issue → PR smoke test. Agent Canvas's catalog Issue → PR workflow documents launching a native OpenHands conversation; this eliminates one process/protocol layer and is officially supported with an OpenAI-compatible local Ollama endpoint. It does NOT remove Ollama or download/pay for another AI model.
+
+- In Agent Canvas **Settings → LLM → Add LLM Profile → Advanced**, set the model to `openai/devstral-small-2:24b-instruct-2512-q4_K_M`, base URL `http://127.0.0.1:11434/v1`, and dummy API key `local-llm` (Ollama itself does not require authentication). The backend must be running *natively on the same Windows host* for this localhost URL to work; never use this URL from a Docker/cloud backend.
+- In **Settings → Agent**, activate the built-in **default** OpenHands agent (not the failed OpenCode ACP profile). For a GitHub automation with secrets, prefer a separate named native OpenHands profile with the narrowest supported secret scope rather than the unrestricted default profile.
+- Start a new read-only conversation with `Reply with exactly LOCAL_OK. Do not use tools or edit files.` This tests the native agent connection to local Ollama. If it fails, inspect the LLM profile validation error, **not** the obsolete ACP error.
+- Only after the native local model succeeds should the operator configure the built-in GitHub Issue → Draft PR automation for the small **unlabeled** smoke issue #49; all GitHub write permissions require explicit owner authorization. No auto-merge.
+- Keep the OpenCode ACP integration as a later optional optimization. Do not block the product, issue queue, or validation pipeline on repairing ACP.
+- Verify tool usage on a harmless read-only task before enabling code edits; a text-only LOCAL_OK result doesn't prove an agent can build Rust or use tools.
+
+Reference: [Agent Canvas local LLM profiles](https://github.com/OpenHands/docs/blob/main/openhands/usage/agent-canvas/llm-profiles.mdx) and [Issue-to-PR workflow](https://github.com/OpenHands/docs/blob/main/openhands/usage/agent-canvas/prebuilt/issue-to-pr.mdx).
+
 ## One-time owner setup (the only interactive part)
 
 1. Stop previous OpenCode agent **in its own console with Ctrl+C**, then let it exit. Do not kill the Ollama server, which may serve other apps. To release VRAM *if no other process uses the model*, `ollama stop devstral-small-2:24b-instruct-2512-q4_K_M`.
