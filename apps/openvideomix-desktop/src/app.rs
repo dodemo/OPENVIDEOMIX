@@ -4,6 +4,8 @@ use std::time::{Duration, Instant};
 use chrono::Local;
 use eframe::egui::{self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2};
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
+#[cfg(feature = "gstreamer-capture")]
+use crate::capture::{CameraEvent, CameraSession};
 
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
@@ -14,6 +16,10 @@ pub struct OpenVideoMixApp {
     pub animated_tick: f32,
     pub connected_v4l2_devices: Vec<String>,
     pub loaded_textures: HashMap<InputId, TextureHandle>,
+    #[cfg(feature = "gstreamer-capture")]
+    capture_session: Option<CameraSession>,
+    #[cfg(feature = "gstreamer-capture")]
+    capture_input_id: Option<InputId>,
 }
 
 impl OpenVideoMixApp {
@@ -27,6 +33,10 @@ impl OpenVideoMixApp {
             animated_tick: 0.0,
             connected_v4l2_devices: Vec::new(),
             loaded_textures: HashMap::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            capture_session: None,
+            #[cfg(feature = "gstreamer-capture")]
+            capture_input_id: None,
         };
         app.refresh_video_devices();
         app
@@ -40,6 +50,83 @@ impl OpenVideoMixApp {
             if std::path::Path::new(&path).exists() {
                 self.connected_v4l2_devices.push(path);
             }
+        }
+    }
+
+    /// Start the default system USB camera. Only one active capture is
+    /// supported by this proof of concept; input selection comes later.
+    fn add_default_usb_camera(&mut self) {
+        #[cfg(feature = "gstreamer-capture")]
+        {
+            // Drop old session before starting the new pipeline.
+            self.capture_session = None;
+            if let Some(id) = self.capture_input_id.take() {
+                self.loaded_textures.remove(&id);
+                self.mixer.remove_input(id);
+            }
+            let next_id = self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0) + 1;
+            let mut input = VideoInput::new(
+                next_id,
+                "Webcam USB (fonte predeterminada) - a conectar",
+                InputKind::Camera { device_path: "auto:default".into() },
+            );
+            input.is_online = false;
+            self.mixer.inputs.push(input);
+            self.capture_input_id = Some(next_id);
+            self.capture_session = Some(CameraSession::start());
+            self.status_notification = Some("Abrindo a webcam predeterminada mediante GStreamer...".into());
+        }
+        #[cfg(not(feature = "gstreamer-capture"))]
+        {
+            self.status_notification = Some(
+                "Captura USB desactivada nesta compilación. Compila con --features gstreamer-capture.".into(),
+            );
+        }
+    }
+
+    #[cfg(feature = "gstreamer-capture")]
+    fn poll_camera(&mut self, ctx: &egui::Context) {
+        let (Some(session), Some(id)) = (&self.capture_session, self.capture_input_id) else {
+            return;
+        };
+        let mut last_frame = None;
+        let mut error = None;
+        while let Ok(event) = session.receiver.try_recv() {
+            match event {
+                CameraEvent::Frame(frame) => last_frame = Some(frame),
+                CameraEvent::Error(message) => error = Some(message),
+            }
+        }
+        if let Some(frame) = last_frame {
+            let image = egui::ColorImage::from_rgba_unmultiplied(
+                [frame.width, frame.height],
+                &frame.rgba,
+            );
+            if let Some(texture) = self.loaded_textures.get_mut(&id) {
+                texture.set(image, egui::TextureOptions::LINEAR);
+            } else {
+                self.loaded_textures.insert(
+                    id,
+                    ctx.load_texture(format!("camera_{id}"), image, egui::TextureOptions::LINEAR),
+                );
+                self.status_notification = Some("Captura USB activa: imaxes reais en Preview/Program.".into());
+            }
+            if let Some(input) = self.mixer.inputs.iter_mut().find(|input| input.id == id) {
+                input.width = frame.width as u32;
+                input.height = frame.height as u32;
+                input.fps = 30; // negotiated PoC output; not measured output FPS
+                input.is_online = true;
+                input.name = "Webcam USB (predeterminada) - vídeo real".into();
+            }
+        }
+        if let Some(message) = error {
+            if let Some(input) = self.mixer.inputs.iter_mut().find(|input| input.id == id) {
+                input.is_online = false;
+                input.name = "Webcam USB - erro de captura".into();
+            }
+            self.loaded_textures.remove(&id);
+            self.status_notification = Some(message);
+            self.capture_session = None;
         }
     }
 
@@ -181,22 +268,20 @@ impl OpenVideoMixApp {
                     );
                 }
                 InputKind::Camera { device_path } => {
-                    let has_dev = self.connected_v4l2_devices.contains(device_path);
-                    if has_dev {
-                        painter.rect_filled(rect, 0.0, Color32::from_rgb(20, 32, 48));
-                        painter.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            format!("📹 SINAL DE WEBCAM EN DIRECTO ({})\nCaptura V4L2 50 FPS Activa", device_path),
-                            egui::FontId::proportional(16.0),
-                            Color32::from_rgb(90, 220, 255),
+                    if let Some(texture) = self.loaded_textures.get(&inp.id) {
+                        painter.rect_filled(rect, 0.0, Color32::BLACK);
+                        painter.image(
+                            texture.id(),
+                            rect,
+                            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                            Color32::WHITE,
                         );
                     } else {
                         painter.rect_filled(rect, 0.0, Color32::from_rgb(26, 18, 18));
                         painter.text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
-                            format!("⚠️ SEN SINAL: {}\nConecta a túa webcam USB ao ordenador", device_path),
+                            format!("WEBCAM: {}\\nSen fotogramas reais (captura non iniciada)", device_path),
                             egui::FontId::proportional(15.0),
                             Color32::from_rgb(240, 160, 60),
                         );
@@ -276,6 +361,8 @@ impl OpenVideoMixApp {
 impl eframe::App for OpenVideoMixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.update_simulation();
+        #[cfg(feature = "gstreamer-capture")]
+        self.poll_camera(ctx);
 
         // Keyboard Shortcuts (CUT with Space, FADE with Enter, 1..6 for inputs, F1 for Settings)
         if ctx.input(|i| i.key_pressed(Key::Space)) {
@@ -340,11 +427,11 @@ impl eframe::App for OpenVideoMixApp {
         // BOTTOM STATUS BAR
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("FPS REAL: {:.1}", self.mixer.fps)).strong().color(Color32::from_rgb(0, 230, 160)));
+                ui.label(RichText::new(format!("Refresco UI: {:.1}", self.mixer.fps)).strong().color(Color32::from_rgb(0, 230, 160)));
                 ui.separator();
-                ui.label(format!("CPU: {:.1}%", self.mixer.cpu_usage_pct));
+                ui.label(format!("CPU (demo): {:.1}%", self.mixer.cpu_usage_pct));
                 ui.separator();
-                ui.label(format!("Webcams detectadas: {}", self.connected_v4l2_devices.len()));
+                ui.label(format!("Nodes V4L2 (Linux): {}", self.connected_v4l2_devices.len()));
                 ui.separator();
 
                 if let Some(msg) = &self.status_notification {
@@ -457,13 +544,8 @@ impl eframe::App for OpenVideoMixApp {
                             }
                         }
 
-                        if ui.button("➕ Engadir Cámara USB").clicked() {
-                            let next_id = (self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0)) + 1;
-                            self.mixer.inputs.push(VideoInput::new(
-                                next_id,
-                                format!("Nova Cámara {}", next_id),
-                                InputKind::Camera { device_path: format!("/dev/video{}", next_id - 1) },
-                            ));
+                        if ui.button("Engadir webcam USB (proba)").clicked() {
+                            self.add_default_usb_camera();
                         }
                     });
 
@@ -548,6 +630,12 @@ impl eframe::App for OpenVideoMixApp {
                                 self.mixer.select_preview(id);
                             }
                             if let Some(id) = action_remove {
+                                #[cfg(feature = "gstreamer-capture")]
+                                if self.capture_input_id == Some(id) {
+                                    self.capture_session = None;
+                                    self.capture_input_id = None;
+                                }
+                                self.loaded_textures.remove(&id);
                                 self.mixer.remove_input(id);
                             }
                             if let Some(id) = action_toggle_ov1 {
@@ -674,7 +762,7 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
-        // Exact frame timing based on target FPS (e.g. 50.00 FPS -> exactly 20.0ms per frame)
+        // UI repaint cadence only: not a measured video capture/output cadence.
         let target_fps = self.mixer.settings.target_fps_value();
         let frame_interval_millis = (1000.0 / target_fps) as u64;
         ctx.request_repaint_after(Duration::from_millis(frame_interval_millis));
