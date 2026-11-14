@@ -67,13 +67,30 @@ class LocalAlphaLoopTests(unittest.TestCase):
         self.assertIn("GStreamer", why)
 
     def test_branch_resume_and_no_dirty_main(self):
-        with patch.object(loop, "capture", return_value=(0, "feat/windows-local-alpha\n")):
-            with patch.object(loop, "capture", side_effect=[(0, "https://github.com/dodemo/OPENVIDEOMIX.git"),
-                                                          (0, "feat/windows-local-alpha\n")]):
-                self.assertEqual(loop.work_branch()[0], True)
+        with patch.object(loop, "capture", side_effect=[
+            (0, "https://github.com/dodemo/OPENVIDEOMIX.git"),
+            (0, "feat/windows-local-alpha\n"),
+        ]):
+            self.assertEqual(loop.work_branch()[0], True)
         with patch.object(loop, "capture", side_effect=[(0, "https://github.com/dodemo/OPENVIDEOMIX.git"),
                                                       (0, "main\n"), (0, " M src/lib.rs\n")]):
             self.assertEqual(loop.work_branch()[0], False)
+
+    def test_existing_agent_worktree_is_allowed_without_switching(self):
+        with patch.object(loop, "capture", side_effect=[
+            (0, "https://github.com/dodemo/OPENVIDEOMIX.git"),
+            (0, "local/windows-alpha-work\n"),
+        ]) as git:
+            self.assertTrue(loop.work_branch()[0])
+            self.assertEqual(git.call_count, 2)
+
+    def test_agent_cannot_change_its_own_harness(self):
+        with patch.object(loop, "protected_digest", side_effect=["hash1", "hash2"]), \
+             patch.object(loop.shutil, "which", return_value=sys.executable), \
+             patch.object(loop, "logged", return_value={"name": "agent", "status": "PASS"}):
+            result = loop.agent_pass(1, loop.DEFAULT_MODEL)
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertIn("protected", result["reason"])
 
     def test_identical_failed_checks_do_not_trigger_infinite_agent_loop(self):
         stable = {
