@@ -83,7 +83,8 @@ mod tests {
     #[test]
     fn identity_survives_os_path_changes_and_duplicate_names() {
         let original = camera("USB Camera", Some("A"), "/dev/video0");
-        let selected_key = persistent_selection(std::slice::from_ref(&original), &original.device).unwrap();
+        let selected_key =
+            persistent_selection(std::slice::from_ref(&original), &original.device).unwrap();
         let mut reconnected = original.clone();
         reconnected.device.os_device_id = "/dev/video8".into();
         let mut other = camera("USB Camera", Some("B"), "/dev/video0");

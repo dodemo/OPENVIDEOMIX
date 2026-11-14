@@ -1,8 +1,10 @@
 mod app;
-#[cfg(feature = "local-control-api")]
-mod remote_control;
+#[cfg(feature = "gstreamer-capture")]
+mod capture;
 #[cfg(feature = "midi-input")]
 mod midi_input;
+#[cfg(feature = "local-control-api")]
+mod remote_control;
 
 use app::OpenVideoMixApp;
 
