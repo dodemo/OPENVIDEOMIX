@@ -1,5 +1,46 @@
 # Development continuation checkpoint — 2026-11-14
 
+## Latest continuation: capture-to-Program ingress (#35)
+
+Current branch: `feat/capture-program-ingress`.
+Tested code commit: `a0b9c7dc5c173dddc7c8a3f62ae88e7b4bf5338b`.
+This update is a subsequent documentation-only commit on the same branch.
+
+Implemented `CaptureOutput`, requiring common-clock capture timestamps for the
+existing bounded ReferenceOutput queues. It preserves source-local PTS metadata,
+rejects missing timestamps, malformed pixels, mismatched dimensions and duplicate
+registration, and exposes accepted/rejected ingress and actual overflow counts.
+Capture is exported from the desktop library and reused by the GUI, so headless
+and GUI consumers share one implementation and clock epoch.
+
+Local Linux validation at this code revision: format, workspace check,
+all-target/all-feature Clippy and all-feature workspace tests pass: **74 tests**
+(52 core + 9 library + 3 desktop + 5 capture ingress + 5 recording).
+A new combined-feature regression captures three real synthetic GStreamer frames,
+composes Program, records those same frames with supplied PCM, finalizes WebM and
+decodes all three. The test explicitly selects experimental 640x360/30. The shared
+1080p50 default and full-HD recorder regressions remain unchanged. Other ingress
+tests cover delayed sources, future-frame exclusion, holding, rejected input
+without queue loss, removals and overflow accounting. CI now runs combined-feature
+tests, in addition to separate capture/recording feature tests.
+
+Merge dependency: #35 includes both #32 and #34 via a normal merge. Complete the
+chains below first, then retarget #35 to main and revalidate. No history rewrite,
+no PR merged and no issue closed in this continuation. At the last CI query, all
+nine open PRs (#23/#25/#27/#28/#30/#31/#32/#34/#35) had pending checks and no failed
+completed conclusion. #27 and #28 each still awaited a macOS job. Do not treat
+queued or running CI as success.
+
+Exact next task: add a bounded, paced output worker owning CaptureOutput, with a
+rational output schedule in the shared clock epoch, explicit source cadence/rate
+conversion configuration and tests for missed deadlines, overload, clean stop and
+source loss. Before activating desktop RECORD, implement the GPU Program tap and
+real captured/mixed audio with A/V clock/drift management. Current integration is
+CPU/reference and supplied PCM; it is not a production worker or measured 1080p50.
+See `docs/CAPTURE_OUTPUT_INGRESS.md` for the boundary and limitations.
+
+## Previous checkpoint (historical snapshot)
+
 ## Repository and current work
 
 Repository: https://github.com/dodemo/OPENVIDEOMIX
