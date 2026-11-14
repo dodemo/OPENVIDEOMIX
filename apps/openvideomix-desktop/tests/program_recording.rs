@@ -262,3 +262,188 @@ fn actual_composited_program_and_pcm_round_trip_at_default_1080p50() {
     let rms = (squared / decoded_samples as f64).sqrt();
     assert!((0.30..0.40).contains(&rms), "Decoded PCM RMS: {rms}");
 }
+
+#[test]
+fn explicit_indices_reject_missing_audio_rewinds_and_oversized_gaps_without_advancing() {
+    let file = TestFile::new();
+    let mut recorder = ProgramRecorder::start(&file.0, small_profile()).unwrap();
+    let video = RgbaFrame::solid(64, 32, [100, 0, 0, 255]).unwrap();
+    assert!(recorder.required_audio_samples_for_frame(1).is_err());
+    recorder
+        .write_frame_at(0, &video, &vec![0.1; 1920])
+        .unwrap();
+    assert!(recorder
+        .write_frame_at(0, &video, &vec![0.1; 1920])
+        .is_err());
+    assert_eq!(recorder.required_audio_samples_for_frame(5).unwrap(), 4800);
+    assert!(recorder
+        .write_frame_at(5, &video, &vec![0.1; 1920])
+        .is_err());
+    assert!(recorder
+        .write_frame_at(100, &video, &[])
+        .unwrap_err()
+        .contains("one-second"));
+    assert!(recorder.required_audio_samples_for_frame(u64::MAX).is_err());
+    assert_eq!(recorder.next_audio_samples_per_channel().unwrap(), 960);
+    recorder.write_frame(&video, &vec![0.1; 1920]).unwrap();
+    let stats = recorder.finish(Duration::from_secs(10)).unwrap();
+    assert_eq!(
+        (
+            stats.submitted_video_frames,
+            stats.timeline_video_frames,
+            stats.missing_video_frames
+        ),
+        (2, 2, 0)
+    );
+    assert_eq!(stats.submitted_audio_samples_per_channel, 1920);
+}
+
+#[test]
+fn gapped_video_pts_and_continuous_supplied_audio_survive_webm_round_trip() {
+    let file = TestFile::new();
+    let mut recorder = ProgramRecorder::start(&file.0, small_profile()).unwrap();
+    let mut audio_index = 0;
+    for index in [0, 1, 5, 6] {
+        let count = recorder.required_audio_samples_for_frame(index).unwrap();
+        let mut pcm = Vec::new();
+        for _ in 0..count {
+            let value =
+                (audio_index as f64 * std::f64::consts::TAU * 1000.0 / 48_000.0).sin() as f32 * 0.5;
+            pcm.extend([value, value]);
+            audio_index += 1;
+        }
+        let color = if index < 5 {
+            [240, 0, 0, 255]
+        } else {
+            [0, 0, 240, 255]
+        };
+        let video = RgbaFrame::solid(64, 32, color).unwrap();
+        if index == 6 {
+            recorder.write_frame(&video, &pcm).unwrap();
+        } else {
+            recorder.write_frame_at(index, &video, &pcm).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let stats = recorder.finish(Duration::from_secs(10)).unwrap();
+    assert_eq!(
+        (
+            stats.submitted_video_frames,
+            stats.encoded_video_frames,
+            stats.timeline_video_frames,
+            stats.missing_video_frames
+        ),
+        (4, 4, 7, 3)
+    );
+    assert_eq!(stats.media_duration_ns, 140_000_000);
+    assert_eq!(stats.submitted_audio_samples_per_channel, 6720);
+    let pipeline=gst::parse::launch("filesrc name=input ! matroskademux name=d d.video_0 ! queue ! vp8dec ! videoconvert ! video/x-raw,format=RGBA ! appsink name=video sync=false wait-on-eos=false d.audio_0 ! queue ! vorbisdec ! audioconvert ! audio/x-raw,format=F32LE ! appsink name=audio sync=false wait-on-eos=false").unwrap().dynamic_cast::<gst::Pipeline>().unwrap();
+    struct Stop(gst::Pipeline);
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            let _ = self.0.set_state(gst::State::Null);
+        }
+    }
+    let decoder = Stop(pipeline);
+    decoder
+        .0
+        .by_name("input")
+        .unwrap()
+        .set_property("location", file.0.to_str().unwrap());
+    let video = decoder
+        .0
+        .by_name("video")
+        .unwrap()
+        .dynamic_cast::<gst_app::AppSink>()
+        .unwrap();
+    let audio = decoder
+        .0
+        .by_name("audio")
+        .unwrap()
+        .dynamic_cast::<gst_app::AppSink>()
+        .unwrap();
+    decoder.0.set_state(gst::State::Playing).unwrap();
+    let msg = decoder
+        .0
+        .bus()
+        .unwrap()
+        .timed_pop_filtered(
+            gst::ClockTime::from_seconds(10),
+            &[gst::MessageType::Eos, gst::MessageType::Error],
+        )
+        .unwrap();
+    assert!(
+        matches!(msg.view(), gst::MessageView::Eos(_)),
+        "Decode failed: {msg:?}"
+    );
+    let mut pts = Vec::new();
+    let mut colors = Vec::new();
+    while let Some(sample) = video.try_pull_sample(gst::ClockTime::ZERO) {
+        let buffer = sample.buffer().unwrap();
+        pts.push(buffer.pts().unwrap().nseconds());
+        colors.push(buffer.map_readable().unwrap()[..4].to_vec());
+    }
+    assert_eq!(pts, vec![0, 20_000_000, 100_000_000, 120_000_000]);
+    assert!(colors[0][0] > 200 && colors[0][2] < 30);
+    assert!(colors[2][0] < 30 && colors[2][2] > 200);
+    let mut decoded = Vec::new();
+    let mut first_pts = None;
+    while let Some(sample) = audio.try_pull_sample(gst::ClockTime::ZERO) {
+        let caps = sample.caps().unwrap().structure(0).unwrap();
+        assert_eq!(caps.get::<i32>("rate").unwrap(), 48_000);
+        assert_eq!(caps.get::<i32>("channels").unwrap(), 2);
+        let buffer = sample.buffer().unwrap();
+        if first_pts.is_none() {
+            first_pts = Some(buffer.pts().unwrap().nseconds());
+        }
+        for bytes in buffer.map_readable().unwrap().as_chunks::<4>().0 {
+            decoded.push(f32::from_le_bytes(*bytes));
+        }
+    }
+    assert_eq!(first_pts, Some(0));
+    assert!(
+        (13_440..=15_488).contains(&decoded.len()),
+        "Decoded PCM sample count: {}",
+        decoded.len()
+    );
+    // 50–90 ms lies inside the missing video interval. The supplied tone must
+    // still be present there; neither truncated time nor inserted silence is OK.
+    let interval = &decoded[2400 * 2..4320 * 2];
+    let rms = (interval
+        .iter()
+        .map(|value| f64::from(*value).powi(2))
+        .sum::<f64>()
+        / interval.len() as f64)
+        .sqrt();
+    assert!(
+        (0.30..0.40).contains(&rms),
+        "Audio inside video gap RMS: {rms}"
+    );
+}
+
+#[test]
+fn fractional_rate_gap_uses_cumulative_audio_boundaries() {
+    let file = TestFile::new();
+    let profile = VideoProfile {
+        frame_rate: FrameRate::new(60_000, 1001).unwrap(),
+        ..small_profile()
+    };
+    let mut recorder = ProgramRecorder::start(&file.0, profile).unwrap();
+    let video = RgbaFrame::solid(64, 32, [0, 0, 0, 255]).unwrap();
+    for index in [0, 4] {
+        let samples = recorder.required_audio_samples_for_frame(index).unwrap();
+        recorder
+            .write_frame_at(index, &video, &vec![0.1; samples as usize * 2])
+            .unwrap();
+    }
+    let stats = recorder.finish(Duration::from_secs(10)).unwrap();
+    assert_eq!(stats.submitted_audio_samples_per_channel, 4004);
+    assert_eq!(
+        (stats.encoded_video_frames, stats.missing_video_frames),
+        (2, 3)
+    );
+    assert_eq!(
+        stats.media_duration_ns,
+        video_frame_pts_ns(5, profile.frame_rate).unwrap()
+    );
+}

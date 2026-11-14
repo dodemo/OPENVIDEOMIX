@@ -100,3 +100,29 @@ OPENVIDEOMIX debe soportar **Stream Deck/OpenDeck e controladores USB MIDI**, en
 - **MIDI:** incluír controladores estándar mediante un backend multiplataforma (candidato `midir`); MIDI Learn, botóns Note/CC, potenciómetros, faders, mapeos persistentes, soft takeover e reconexión. O Mingzhe B0FV93GS5Z é un dispositivo de destino; o seu protocolo e identificadores non están verificados con hardware.
 - **Arquitectura:** GUI, teclado, OpenDeck, MIDI e API de rede executan exactamente as mesmas ordes tipadas sobre o núcleo; estado de tally, audio e gravación/streaming emítese por eventos. A API remota require autenticación, control de orixe e opción explícita de exposición LAN. Non bloquear os fíos en tempo real.
 - **Calidade:** probas sen hardware con controladores simulados, probas físicas posteriores, indicadores accesibles sen depender só da cor, control de permisos, detección de desconexión, perfís e documentación de plataformas.
+
+## Active autonomous assignment (2026-11-14)
+
+Read [docs/AUTONOMOUS_GOAL.md](docs/AUTONOMOUS_GOAL.md), the latest user assignment,
+then [docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md](docs/DEVELOPMENT_CHECKPOINT_2026-11-14.md)
+and the live GitHub state before continuing. The product name is OPENVIDEOMIX.
+Apply clean-room Study -> Build -> Check -> Refine/Ready for each functional
+milestone, using observable vMix behavior/public documentation and original code.
+Prioritize a usable desktop capture/test video -> Preview -> CUT -> actual Program
+-> synchronized playable recording slice. Do not stop merely at another reference
+library, PR or checkpoint. Issue #33 is a release gate alongside media acceptance.
+Windows/Linux/macOS Intel/Apple Silicon, 1080p50 and 48 kHz remain mandatory.
+No COMPLETE claim until the full first-release acceptance evidence is verified.
+
+### Serialized continuation
+
+Scheduled continuations must acquire the ephemeral Git ref
+`refs/heads/codex/continuation-lock` with a successful atomic create-ref request
+before making repository changes. Use the current main commit as its target. If
+it already exists, skip that run; never steal or expire it automatically. This
+ref is a concurrency guard, never a source/PR branch. A run may release only the
+lock it successfully created, after committing/pushing a complete continuation
+checkpoint. A crash may leave a stale lock: report it for recovery rather than
+starting overlapping writers. Interactive execution must follow the same guard
+when a recurring continuation is enabled. Read-only inspection is allowed without
+acquiring it. Never delete valuable source branches to recover a lock.
