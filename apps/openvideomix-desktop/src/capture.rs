@@ -21,6 +21,11 @@ pub struct CameraFrame {
     pub width: usize,
     pub height: usize,
     pub rgba: Vec<u8>,
+    /// GStreamer buffer PTS; relative to the source pipeline timebase.
+    /// None when the capture backend does not provide timestamps.
+    pub pts_ns: Option<u64>,
+    /// Advertised buffer duration, not a measured end-to-end frame period.
+    pub duration_ns: Option<u64>,
 }
 
 pub enum CameraEvent {
@@ -49,7 +54,19 @@ impl CameraSession {
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || {
             if let Err(message) = run_capture(&sender, &worker_stop, source) {
-                let _ = sender.try_send(CameraEvent::Error(message));
+                // Frames may fill the bounded queue. Keep the terminal error
+                // pending until the GUI drains a slot, unless capture is
+                // being stopped. A failed try_send would hide the failure.
+                let mut event = CameraEvent::Error(message);
+                while !worker_stop.load(Ordering::Relaxed) {
+                    match sender.try_send(event) {
+                        Ok(()) | Err(TrySendError::Disconnected(_)) => break,
+                        Err(TrySendError::Full(pending)) => {
+                            event = pending;
+                            thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                    }
+                }
             }
         });
         Self {
@@ -157,10 +174,14 @@ fn run_capture(
             continue;
         };
 
+        let pts_ns = buffer.pts().map(|time| time.nseconds());
+        let duration_ns = buffer.duration().map(|time| time.nseconds());
         match sender.try_send(CameraEvent::Frame(CameraFrame {
             width,
             height,
             rgba,
+            pts_ns,
+            duration_ns,
         })) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => break Ok(()),
@@ -216,6 +237,143 @@ mod tests {
     }
 
     #[test]
+    fn capture_failure_is_reported_even_with_a_full_frame_queue() {
+        // An error must not be silently discarded when three pending frames
+        // occupy the bounded channel. Deliberately use an invalid source.
+        let (sender, receiver) = mpsc::sync_channel(3);
+        for _ in 0..3 {
+            sender
+                .send(CameraEvent::Frame(CameraFrame {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0, 0, 0, 255],
+                    pts_ns: None,
+                    duration_ns: None,
+                }))
+                .expect("frame queue should accept three items");
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || {
+            if let Err(message) = run_capture(
+                &sender,
+                &worker_stop,
+                "this_gstreamer_element_does_not_exist",
+            ) {
+                let mut event = CameraEvent::Error(message);
+                while !worker_stop.load(Ordering::Relaxed) {
+                    match sender.try_send(event) {
+                        Ok(()) | Err(TrySendError::Disconnected(_)) => break,
+                        Err(TrySendError::Full(pending)) => {
+                            event = pending;
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                    }
+                }
+            }
+        });
+
+        // Drain the pre-filled frames and allow the worker to publish its
+        // terminal error into the newly available channel capacity.
+        for _ in 0..3 {
+            assert!(matches!(
+                receiver.recv_timeout(Duration::from_secs(2)),
+                Ok(CameraEvent::Frame(_))
+            ));
+        }
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(5)),
+            Ok(CameraEvent::Error(_))
+        ));
+        stop.store(true, Ordering::Relaxed);
+        worker.join().expect("capture worker must terminate");
+    }
+
+    #[test]
+    fn synthetic_capture_preserves_monotonic_source_pts() {
+        let session = CameraSession::start_synthetic();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut last_pts = None;
+        let mut observed = 0;
+        while observed < 5 && Instant::now() < deadline {
+            match session.receiver.recv_timeout(Duration::from_millis(250)) {
+                Ok(CameraEvent::Frame(frame)) => {
+                    let pts = frame
+                        .pts_ns
+                        .expect("videotestsrc should provide a source PTS");
+                    if let Some(previous) = last_pts {
+                        assert!(pts > previous, "source timestamps must be monotonic");
+                    }
+                    last_pts = Some(pts);
+                    observed += 1;
+                }
+                Ok(CameraEvent::Error(message)) => {
+                    panic!("Synthetic timestamp test failed: {message}")
+                }
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        assert_eq!(observed, 5, "insufficient captured timestamped frames");
+    }
+
+    #[test]
+    fn synthetic_full_hd_50fps_negotiates_exact_caps_and_pts() {
+        // Validates only a software-generated GStreamer media path.
+        // It does not establish USB camera support or measured output FPS.
+        gst::init().expect("GStreamer initialization");
+        let element = gst::parse::launch(
+            "videotestsrc is-live=true num-buffers=20 pattern=ball ! \
+             video/x-raw,format=RGBA,width=1920,height=1080,framerate=50/1 ! \
+             appsink name=framesink sync=false max-buffers=2 drop=true",
+        )
+        .expect("synthetic 1080p50 pipeline");
+        let pipeline = element
+            .dynamic_cast::<gst::Pipeline>()
+            .expect("test pipeline");
+        let sink = pipeline
+            .by_name("framesink")
+            .expect("sink")
+            .dynamic_cast::<gst_app::AppSink>()
+            .expect("appsink");
+
+        pipeline.set_state(gst::State::Playing).expect("start");
+        let result = (|| -> Result<(), String> {
+            let mut previous_pts = None;
+            for _ in 0..3 {
+                let sample = sink
+                    .try_pull_sample(gst::ClockTime::from_seconds(5))
+                    .ok_or_else(|| "no synthetic sample at 1080p50".to_string())?;
+                let info = gst_video::VideoInfo::from_caps(
+                    sample.caps().ok_or_else(|| "missing caps".to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+                if info.width() != 1920
+                    || info.height() != 1080
+                    || info.fps() != gst::Fraction::new(50, 1)
+                    || info.format() != gst_video::VideoFormat::Rgba
+                {
+                    return Err(format!("incorrect 1080p50 negotiated mode: {info:?}"));
+                }
+                let pts = sample
+                    .buffer()
+                    .and_then(|buffer| buffer.pts())
+                    .ok_or_else(|| "missing 1080p50 PTS".to_string())?
+                    .nseconds();
+                if let Some(previous) = previous_pts {
+                    if pts <= previous {
+                        return Err("non-monotonic 1080p50 PTS".into());
+                    }
+                }
+                previous_pts = Some(pts);
+            }
+            Ok(())
+        })();
+        let _ = pipeline.set_state(gst::State::Null);
+        result.expect("1080p50 synthetic negotiation");
+    }
+
+    #[test]
     fn two_synthetic_sources_capture_concurrently() {
         // Two independent pipelines simulate distinct video inputs without
         // taking ownership of a physical webcam.
@@ -230,7 +388,8 @@ mod tests {
                     Ok(CameraEvent::Frame(frame)) => {
                         received = frame.width == 640
                             && frame.height == 360
-                            && frame.rgba.len() == 640 * 360 * 4;
+                            && frame.rgba.len() == 640 * 360 * 4
+                            && frame.pts_ns.is_some();
                         if received {
                             break;
                         }
