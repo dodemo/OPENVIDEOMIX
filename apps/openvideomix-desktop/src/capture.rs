@@ -49,7 +49,19 @@ impl CameraSession {
         let worker_stop = Arc::clone(&stop);
         let worker = thread::spawn(move || {
             if let Err(message) = run_capture(&sender, &worker_stop, source) {
-                let _ = sender.try_send(CameraEvent::Error(message));
+                // Frames may fill the bounded queue. Keep the terminal error
+                // pending until the GUI drains a slot, unless capture is
+                // being stopped. A failed try_send would hide the failure.
+                let mut event = CameraEvent::Error(message);
+                while !worker_stop.load(Ordering::Relaxed) {
+                    match sender.try_send(event) {
+                        Ok(()) | Err(TrySendError::Disconnected(_)) => break,
+                        Err(TrySendError::Full(pending)) => {
+                            event = pending;
+                            thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                    }
+                }
             }
         });
         Self {
