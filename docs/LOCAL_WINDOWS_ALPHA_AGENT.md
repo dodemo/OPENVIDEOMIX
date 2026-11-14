@@ -10,7 +10,7 @@
 - The user requires **fully OFFLINE self-contained installers**, including the actual used media libraries/codecs/plugins. A consumer must not need Rust, Python, GStreamer, FFmpeg, Ollama or OpenCode installed separately. Development dependencies are allowed on this workstation but must NOT be prerequisites for end users.
 
 ## The work, in order
-1. **Inspect once**, then execute. Read current `AGENTS.md`, `README.md`, `docs/ROADMAP.md`, `docs/WINDOWS_HARDWARE_TEST.md`, `docs/DESKTOP_PROGRAM_TEST.md`, and the current Cargo features. Record current HEAD. Check git status; if clean on `main`, create `feat/windows-local-alpha`. If that branch already exists, resume it without discarding changes. Do not reset/force-push/overwrite. Avoid repeated audits.
+1. **Inspect once**, then execute. Read current `AGENTS.md`, `README.md`, `docs/ROADMAP.md`, `docs/WINDOWS_HARDWARE_TEST.md`, `docs/DESKTOP_PROGRAM_TEST.md`, and the current Cargo features. Record current HEAD. Check Git status. The independent runner safely resumes the existing `feat/windows-local-alpha` branch or creates `local/windows-alpha-work` from a clean main/isolated bootstrap worktree. Never discard uncommitted changes. Do not reset/force-push/overwrite. Avoid repeated audits.
 2. **Make the Windows development media environment reproducible** without changing machine-wide PATH: find official trusted GStreamer x64 MSVC runtime/development archives/installers and required plugins; inspect installed vs missing components. Obtain them only from official sources, verify signatures/checksums where available, use a private development directory or user-scoped installation. Do not run elevation/UAC, third-party download scripts or untrusted installers automatically. If permission/elevation or a license decision is essential, record one exact human action and mark BLOCKED. FFmpeg/ffprobe may be installed for development validation only, not required on end-user machines.
 3. **Compile and run real GStreamer features** under MSVC: `cargo check --workspace --all-features`, `cargo test --workspace --all-features`, `cargo build --release -p openvideomix-desktop --features gstreamer-capture,gstreamer-recording`. Fix narrow Windows portability errors, then rerun tests. Do not turn off warnings, tests, features or permissions to obtain a green result. Use logs/return codes rather than assumptions.
 4. **Validate media end-to-end** using available local automated tests: four independent 1920x1080 progressive 50/1 synthetic GStreamer sources → Preview/CUT → actual Program → WebM with 48 kHz stereo PCM. Check produced output independently with decoded frames/PTS and PCM duration, report dropped slots and *effective* FPS. GUI mouse interactions and physical camera/microphone tests can be marked PENDING unless a working, authorized automation interface is available; CLI tests are not proof of visual UX.
@@ -33,13 +33,29 @@ Measure `ollama ps` (CPU/GPU placement), `nvidia-smi` (VRAM), wall-clock duratio
 
 For unattended operation, separate **agent generation** from a deterministic test runner that checks exit codes, produces independent media decode results and records hard pass/fail; have the agent read the report and implement the next narrow fix. A model's narrative cannot replace these acceptance checks. Publish only an owner-approved, sanitized report to GitHub; the local agent has no automatic access to ChatGPT's current conversation and ChatGPT cannot inspect the physical Windows session unless those diagnostics are shared through an authorized connector. Do not install a GitHub Actions self-hosted runner on the owner's personal PC for a public repository without a reviewed security design.
 
+## Independent CraftAnything-style verification loop (P0)
+
+`START-OPENVIDEOMIX-AGENT.cmd` activates this workstation's MSVC environment, selects **local Ollama Devstral** by default, and runs the standard-library-only `scripts/local_alpha_loop.py`. The launcher requires developer Python 3.10+, not end-user Python. It is a **developer tool only**; packaged OPENVIDEOMIX must run offline with no Python, GStreamer or Rust installation.
+
+The Python executor, not the LLM, is responsible for:
+
+- Preventing a second instance from entering the same worktree.
+- Running `cargo fmt --all -- --check` and `cargo test --workspace` and recording real exit codes/logs. If the GStreamer development environment is genuinely present, run `cargo test --workspace --all-features` and build the release media-enabled desktop. If absent, mark those checks **BLOCKED**, never PASS.
+- Limiting each agent attempt to 45 minutes and the overall session to at most three edits/verification rounds; stopping on repeated unchanged code/tests, an explicit blocker, process failure, or timeout.
+- Writing private `local-results/WINDOWS_ALPHA_RESULTS.json`, `WINDOWS_ALPHA_REPORT.md` and `SANITIZED_RESULTS.json`. Logs, device details, local paths and recordings stay private and **are not automatically uploaded**.
+- Marking physical capture, GPU-verified 50fps, AV synchronization and clean offline installation `NOT_TESTED` until instrumented/independent evidence exists.
+- Rechecking the **integrity of its own verifier and safety policy** after each LLM session. If a model edits these protected files, stop.
+- Only then ask OpenCode to implement the **next narrow failing task** in its separate Alpha work branch. Always leave an evidence-backed checkpoint. No git push/merge.
+
+Model prompting uses the project specification and the **actual failed tests** from `WINDOWS_ALPHA_RESULTS.json`. The model does not control PASS/FAIL or declare release qualification. The runner is not a security sandbox: use a normal non-admin Windows account and do not grant access to secrets or privileged services.
+
+**One-time use:** after the prior OpenCode task is fully stopped, start the verified launcher in a clean worktree. Optionally set `OPENVIDEOMIX_MODEL=ollama/qwen3.5:9b-q4_K_M` for a later isolated comparison; do not run two coding agents simultaneously. `python scripts/local_alpha_loop.py --checks-only` is a **read-only verification mode** (aside from local ignored result files). Do not run more agents until the existing test log and worktree are understood.
+
 ## Execution discipline
-- **Do not stop after making a plan or discovering a missing dependency.** Implement every part possible without the human, and record the precise unavoidable blocker if any.
-- Treat each loop as a focused continuation; read the checkpoint first and resume incomplete tasks, without redoing successful tests.
-- Create `local-results/` and ensure it is gitignored. Write `local-results/WINDOWS_ALPHA_REPORT.md` with commands, result codes, concrete file outputs, features tested, failures, next step. Maintain `local-results/agent-state.txt` with **exactly one word**:
-  - `CONTINUE` if the next OpenCode session can make useful further progress unaided.
-  - `BLOCKED` if ONLY a physical action, explicit license decision, elevation/permission, or other genuine external blocker prevents progress. Report exact one human action.
-  - `DONE` if software packaging and automated local tests are complete for the current scope, with any hardware/offline-clean-VM checks honestly PENDING.
-- Write/refresh these files at the **end of every session**; output a concise final progress report in Galician. Do not mark "DONE" just because compilation succeeded.
-- Human manual steps must be consolidated rather than sent as many copy-paste instructions. The launch wrapper may run several independent sessions, but stops on BLOCKED, DONE, an error, or its built-in session limit.
+
+- The agent must **make code changes**, not repeatedly audit the repository or rewrite roadmaps.
+- Read independent `local-results/WINDOWS_ALPHA_RESULTS.json` for check failures before every attempt; avoid repeating the same approach when results are unchanged.
+- Record **a single clear blocker**, when indispensable, in `local-results/AGENT_BLOCKER.txt`. Do **not** invent a PASS verdict or write `agent-state.txt`: the independent executor owns the state.
+- Do not install system-wide software or request elevation in unattended operation. Do not run Git push, merge, reset, or destructive operations. Do not commit or share raw biometric, camera/microphone, hostname, username, token or path information.
+- Work in small testable commits on the local feature branch; the user must separately authorize publishing code and sanitized telemetry. Current GitHub issue #46 and PR #45 status must be checked at the start, not repeatedly during every attempt.
 - Never assert that nominal 50 fps, GPU presence, GStreamer compilation, or a synthetic test proves physical 1080p50 broadcast reliability.
