@@ -179,6 +179,13 @@ impl ReferenceOutput {
         take: Option<ReferenceTake>,
         overlay_inputs: [Option<InputId>; 4],
     ) -> Result<RgbaFrame, RenderError> {
+        // Reject invalid progress before dequeuing any source frames.
+        // Invalid control input must not advance a source's playout cursor.
+        if let Some(take) = take {
+            if !take.progress.is_finite() || !(0.0..=1.0).contains(&take.progress) {
+                return Err(RenderError::Composite(CompositeError::InvalidProgress));
+            }
+        }
         let program_frame = self.sample(program, output_pts_ns)?;
         let background = match take {
             Some(take) => {
