@@ -318,6 +318,62 @@ mod tests {
     }
 
     #[test]
+    fn synthetic_full_hd_50fps_negotiates_exact_caps_and_pts() {
+        // Validates only a software-generated GStreamer media path.
+        // It does not establish USB camera support or measured output FPS.
+        gst::init().expect("GStreamer initialization");
+        let element = gst::parse::launch(
+            "videotestsrc is-live=true num-buffers=4 pattern=ball ! \
+             video/x-raw,format=RGBA,width=1920,height=1080,framerate=50/1 ! \
+             appsink name=framesink sync=false max-buffers=2 drop=true",
+        )
+        .expect("synthetic 1080p50 pipeline");
+        let pipeline = element
+            .dynamic_cast::<gst::Pipeline>()
+            .expect("test pipeline");
+        let sink = pipeline
+            .by_name("framesink")
+            .expect("sink")
+            .dynamic_cast::<gst_app::AppSink>()
+            .expect("appsink");
+
+        pipeline.set_state(gst::State::Playing).expect("start");
+        let result = (|| -> Result<(), String> {
+            let mut previous_pts = None;
+            for _ in 0..3 {
+                let sample = sink
+                    .try_pull_sample(gst::ClockTime::from_seconds(5))
+                    .ok_or_else(|| "no synthetic sample at 1080p50".to_string())?;
+                let info = gst_video::VideoInfo::from_caps(
+                    sample.caps().ok_or_else(|| "missing caps".to_string())?,
+                )
+                .map_err(|error| error.to_string())?;
+                if info.width() != 1920
+                    || info.height() != 1080
+                    || info.fps() != gst::Fraction::new(50, 1)
+                    || info.format() != gst_video::VideoFormat::Rgba
+                {
+                    return Err(format!("incorrect 1080p50 negotiated mode: {info:?}"));
+                }
+                let pts = sample
+                    .buffer()
+                    .and_then(|buffer| buffer.pts())
+                    .ok_or_else(|| "missing 1080p50 PTS".to_string())?
+                    .nseconds();
+                if let Some(previous) = previous_pts {
+                    if pts <= previous {
+                        return Err("non-monotonic 1080p50 PTS".into());
+                    }
+                }
+                previous_pts = Some(pts);
+            }
+            Ok(())
+        })();
+        let _ = pipeline.set_state(gst::State::Null);
+        result.expect("1080p50 synthetic negotiation");
+    }
+
+    #[test]
     fn two_synthetic_sources_capture_concurrently() {
         // Two independent pipelines simulate distinct video inputs without
         // taking ownership of a physical webcam.
