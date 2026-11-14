@@ -52,7 +52,10 @@ pub fn persistent_selection(
     let key = selected
         .persistent_key()
         .ok_or(CameraResolveError::NotPersistent)?;
-    resolve_camera(devices, &key)?;
+    let active = resolve_camera(devices, &key)?;
+    if active.device.os_device_id != selected.os_device_id {
+        return Err(CameraResolveError::NotConnected);
+    }
     Ok(key)
 }
 
@@ -124,6 +127,16 @@ mod tests {
         assert!(matches!(
             persistent_selection(&[cam.clone()], &cam.device),
             Err(CameraResolveError::NotPersistent)
+        ));
+    }
+
+    #[test]
+    fn cannot_save_a_stale_selection_from_a_previous_enumeration() {
+        let active = camera("USB Camera", Some("A"), "/dev/video8");
+        let stale = camera("USB Camera", Some("A"), "/dev/video0");
+        assert!(matches!(
+            persistent_selection(&[active], &stale.device),
+            Err(CameraResolveError::NotConnected)
         ));
     }
 
