@@ -71,17 +71,32 @@ impl OpenVideoMixApp {
             let next_id = self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0) + 1;
             let mut input = VideoInput::new(
                 next_id,
-                if _synthetic { "Sinal sintético GStreamer - a conectar" } else { "Webcam USB (fonte predeterminada) - a conectar" },
+                if _synthetic {
+                    "Sinal sintético GStreamer - a conectar"
+                } else {
+                    "Webcam USB (fonte predeterminada) - a conectar"
+                },
                 InputKind::Camera {
-                    device_path: if _synthetic { "synthetic:videotestsrc".into() } else { "auto:default".into() },
+                    device_path: if _synthetic {
+                        "synthetic:videotestsrc".into()
+                    } else {
+                        "auto:default".into()
+                    },
                 },
             );
             input.is_online = false;
             self.mixer.inputs.push(input);
             self.capture_input_id = Some(next_id);
-            self.capture_session = Some(if _synthetic { CameraSession::start_synthetic() } else { CameraSession::start() });
-            self.status_notification =
-                Some(if _synthetic { "Iniciando sinal de proba de GStreamer...".into() } else { "Abrindo a webcam predeterminada mediante GStreamer...".into() });
+            self.capture_session = Some(if _synthetic {
+                CameraSession::start_synthetic()
+            } else {
+                CameraSession::start()
+            });
+            self.status_notification = Some(if _synthetic {
+                "Iniciando sinal de proba de GStreamer...".into()
+            } else {
+                "Abrindo a webcam predeterminada mediante GStreamer...".into()
+            });
         }
         #[cfg(not(feature = "gstreamer-capture"))]
         {
@@ -122,7 +137,12 @@ impl OpenVideoMixApp {
                 input.height = frame.height as u32;
                 input.fps = 30; // negotiated PoC output; not measured output FPS
                 input.is_online = true;
-                input.name = if matches!(&input.kind, InputKind::Camera { device_path } if device_path.starts_with("synthetic:")) { "Sinal sintético GStreamer (proba)".into() } else { "Webcam USB - vídeo capturado".into() };
+                input.name = if matches!(&input.kind, InputKind::Camera { device_path } if device_path.starts_with("synthetic:"))
+                {
+                    "Sinal sintético GStreamer (proba)".into()
+                } else {
+                    "Webcam USB - vídeo capturado".into()
+                };
             }
         }
         if let Some(message) = error {
