@@ -135,7 +135,7 @@ impl Default for ProjectSettings {
         Self {
             output_resolution: video_profile::DEFAULT_OUTPUT_RESOLUTION_LABEL.into(),
             frame_rate: video_profile::DEFAULT_OUTPUT_FRAME_RATE_LABEL.into(),
-            audio_device: "SN6140 Analog / PipeWire".into(),
+            audio_device: "System default (not yet opened)".into(),
             audio_sample_rate: video_profile::DEFAULT_AUDIO_SAMPLE_RATE,
         }
     }
@@ -287,6 +287,7 @@ mod profile_defaults_tests {
         assert_eq!(settings.output_resolution, "1920x1080 (Full HD)");
         assert_eq!(settings.frame_rate, "50.00 fps (PAL Broadcast 50Hz)");
         assert_eq!(settings.audio_sample_rate, 48_000);
+        assert_eq!(settings.audio_device, "System default (not yet opened)");
         let input = VideoInput::new(42, "test", InputKind::ColorBars);
         assert_eq!((input.width, input.height), (target.width, target.height));
         assert_eq!(input.fps, target.frame_rate.numerator);
