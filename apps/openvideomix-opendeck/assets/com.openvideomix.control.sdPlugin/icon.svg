@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144" role="img" aria-label="OPENVIDEOMIX video control">
+  <rect width="144" height="144" rx="22" fill="#111827"/>
+  <rect x="15" y="25" width="50" height="56" rx="6" fill="#132819" stroke="#3bd275" stroke-width="5"/>
+  <rect x="79" y="25" width="50" height="56" rx="6" fill="#2d1517" stroke="#ff5965" stroke-width="5"/>
+  <path d="M24 106h96" stroke="#a5b4fc" stroke-width="9" stroke-linecap="round"/>
+  <path d="M72 98v17" stroke="#e2e8f0" stroke-width="7" stroke-linecap="round"/>
+</svg>
