@@ -152,9 +152,16 @@ def save_report(report: dict) -> None:
 
 
 def fingerprint(report: dict) -> str:
-    code, diff = capture(["git", "status", "--porcelain"])
+    code, diff = capture(["git", "diff", "--binary", "--no-ext-diff", "HEAD"])
+    rc, untracked = capture(["git", "ls-files", "--others", "--exclude-standard"])
+    extra = []
+    if rc == 0:
+        for name in untracked.splitlines():
+            path = (ROOT / name).resolve()
+            if path.is_file() and path.is_relative_to(ROOT) and path.stat().st_size < 1_000_000:
+                extra.append((name, hashlib.sha256(path.read_bytes()).hexdigest()))
     statuses = [(x["name"], x["status"]) for x in report["checks"]]
-    data = json.dumps([statuses, diff if code == 0 else "unknown"])
+    data = json.dumps([statuses, diff if code == 0 else "unknown", extra])
     return hashlib.sha256(data.encode()).hexdigest()
 
 
