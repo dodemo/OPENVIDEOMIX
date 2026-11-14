@@ -1,0 +1,17 @@
+[package]
+name = "openvideomix-opendeck"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "OpenAction / Stream Deck control plugin for OPENVIDEOMIX"
+
+# Intentionally a separate project: packaging the plugin must not pull
+# OpenAction dependencies into the broadcast application's core workspace.
+[workspace]
+
+[dependencies]
+openaction = "2.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
