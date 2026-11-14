@@ -1,6 +1,6 @@
 mod app;
 #[cfg(feature = "gstreamer-capture")]
-mod capture;
+use openvideomix_desktop::capture;
 #[cfg(feature = "gstreamer-capture")]
 mod capture_devices;
 #[cfg(feature = "midi-input")]

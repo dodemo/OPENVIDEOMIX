@@ -157,6 +157,11 @@ impl ReferenceOutput {
         Ok(())
     }
 
+    /// Actual queue-overflow evictions, distinct from skipped playout frames.
+    pub fn source_dropped_frames(&self, input: InputId) -> Option<u64> {
+        self.sources.get(&input).map(FrameQueue::dropped_frames)
+    }
+
     pub fn remove_source(&mut self, input: InputId) {
         self.sources.remove(&input);
     }

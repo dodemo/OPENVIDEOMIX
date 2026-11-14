@@ -71,3 +71,5 @@ jobs:
         run: cargo check --workspace --all-features
       - name: Clippy all optional adapters and recording
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - name: Combined capture to Program recording integration
+        run: cargo test --workspace --all-features
