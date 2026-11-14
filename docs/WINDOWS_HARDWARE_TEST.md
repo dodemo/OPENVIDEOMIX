@@ -1,8 +1,8 @@
 # Windows physical validation bench — procedure, not executed evidence
 
-Owner-provided target: Windows 10 Pro, RTX 4080 SUPER 16 GB, 96 GB RAM, 2 TB NVMe.
+Owner-confirmed target: Windows 11 (edition to be verified), RTX 4080 SUPER 16 GB, 96 GB RAM, 2 TB NVMe.
 This computer has not been remotely accessed or tested by Codex. It does not
-qualify Windows 11, Linux, macOS Intel or Apple Silicon. Do not mark release gates
+qualify Windows 10, Linux, macOS Intel or Apple Silicon. Do not mark release gates
 complete from these instructions. Record exact commit, OS/driver/runtime versions,
 connected device models, mode/caps and test duration in the actual results.
 
