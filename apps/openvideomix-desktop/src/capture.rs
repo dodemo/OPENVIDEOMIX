@@ -21,6 +21,9 @@ pub struct CameraFrame {
     pub width: usize,
     pub height: usize,
     pub rgba: Vec<u8>,
+    /// Source presentation timestamp; None if the capture backend supplied none.
+    /// This is not a wall-clock time or a measured output frame cadence.
+    pub pts_ns: Option<u64>,
 }
 
 pub enum CameraEvent {
@@ -169,10 +172,15 @@ fn run_capture(
             continue;
         };
 
+        // Preserve source timestamps before making the expensive RGBA copy
+        // observable to downstream consumers. Do not generate fake PTS from
+        // the egui redraw cadence or a fixed 30 fps UI setting.
+        let pts_ns = buffer.pts().map(|pts| pts.nseconds());
         match sender.try_send(CameraEvent::Frame(CameraFrame {
             width,
             height,
             rgba,
+            pts_ns,
         })) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => break Ok(()),
@@ -238,6 +246,7 @@ mod tests {
                     width: 1,
                     height: 1,
                     rgba: vec![0, 0, 0, 255],
+                    pts_ns: None,
                 }))
                 .expect("frame queue should accept three items");
         }
@@ -276,6 +285,30 @@ mod tests {
         ));
         stop.store(true, Ordering::Relaxed);
         worker.join().expect("capture worker must terminate");
+    }
+
+    #[test]
+    fn synthetic_capture_preserves_monotonic_source_pts() {
+        let session = CameraSession::start_synthetic();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut last_pts = None;
+        let mut observed = 0;
+        while observed < 5 && Instant::now() < deadline {
+            match session.receiver.recv_timeout(Duration::from_millis(250)) {
+                Ok(CameraEvent::Frame(frame)) => {
+                    let pts = frame.pts_ns.expect("videotestsrc should provide a source PTS");
+                    if let Some(previous) = last_pts {
+                        assert!(pts > previous, "source timestamps must be monotonic");
+                    }
+                    last_pts = Some(pts);
+                    observed += 1;
+                }
+                Ok(CameraEvent::Error(message)) => panic!("Synthetic timestamp test failed: {message}"),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        assert_eq!(observed, 5, "insufficient captured timestamped frames");
     }
 
     #[test]
