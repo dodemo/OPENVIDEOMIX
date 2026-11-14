@@ -21,6 +21,11 @@ pub struct CameraFrame {
     pub width: usize,
     pub height: usize,
     pub rgba: Vec<u8>,
+    /// GStreamer buffer PTS; relative to the source pipeline timebase.
+    /// None when the capture backend does not provide timestamps.
+    pub pts_ns: Option<u64>,
+    /// Advertised buffer duration, not a measured end-to-end frame period.
+    pub duration_ns: Option<u64>,
 }
 
 pub enum CameraEvent {
@@ -169,10 +174,14 @@ fn run_capture(
             continue;
         };
 
+        let pts_ns = buffer.pts().map(|time| time.nseconds());
+        let duration_ns = buffer.duration().map(|time| time.nseconds());
         match sender.try_send(CameraEvent::Frame(CameraFrame {
             width,
             height,
             rgba,
+            pts_ns,
+            duration_ns,
         })) {
             Ok(()) | Err(TrySendError::Full(_)) => {}
             Err(TrySendError::Disconnected(_)) => break Ok(()),
@@ -238,6 +247,8 @@ mod tests {
                     width: 1,
                     height: 1,
                     rgba: vec![0, 0, 0, 255],
+                    pts_ns: None,
+                    duration_ns: None,
                 }))
                 .expect("frame queue should accept three items");
         }
@@ -293,7 +304,8 @@ mod tests {
                     Ok(CameraEvent::Frame(frame)) => {
                         received = frame.width == 640
                             && frame.height == 360
-                            && frame.rgba.len() == 640 * 360 * 4;
+                            && frame.rgba.len() == 640 * 360 * 4
+                            && frame.pts_ns.is_some();
                         if received {
                             break;
                         }
