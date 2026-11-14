@@ -180,7 +180,7 @@ def agent_pass(round_id: int, model: str) -> dict:
     if not executable:
         return {"name": "local-agent", "status": "BLOCKED", "reason": "OpenCode executable not found"}
     return logged(f"opencode-{round_id}",
-                  [executable, "run", "--standalone", "--agent", "build", "--model", model, instruction],
+                  [executable, "run", "--standalone", "--auto", "--agent", "build", "--model", model, instruction],
                   2700, round_id)
 
 
