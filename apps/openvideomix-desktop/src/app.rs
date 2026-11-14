@@ -36,8 +36,7 @@ pub struct OpenVideoMixApp {
     #[cfg(feature = "gstreamer-capture")]
     discovered_cameras: Vec<CameraDeviceInfo>,
     #[cfg(feature = "gstreamer-capture")]
-    camera_discovery_rx:
-        Option<std::sync::mpsc::Receiver<Result<Vec<CameraDeviceInfo>, String>>>,
+    camera_discovery_rx: Option<std::sync::mpsc::Receiver<Result<Vec<CameraDeviceInfo>, String>>>,
     #[cfg(feature = "midi-input")]
     midi_ports: Vec<String>,
     #[cfg(feature = "midi-input")]
@@ -230,15 +229,16 @@ impl OpenVideoMixApp {
 
     #[cfg(feature = "gstreamer-capture")]
     fn poll_camera_discovery(&mut self) {
-        let outcome = self.camera_discovery_rx.as_ref().and_then(|receiver| {
-            match receiver.try_recv() {
-                Ok(result) => Some(result),
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    Some(Err("A exploración de cámaras rematou inesperadamente".into()))
-                }
-                Err(std::sync::mpsc::TryRecvError::Empty) => None,
-            }
-        });
+        let outcome =
+            self.camera_discovery_rx
+                .as_ref()
+                .and_then(|receiver| match receiver.try_recv() {
+                    Ok(result) => Some(result),
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => Some(Err(
+                        "A exploración de cámaras rematou inesperadamente".into(),
+                    )),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                });
         if let Some(result) = outcome {
             self.camera_discovery_rx = None;
             match result {
