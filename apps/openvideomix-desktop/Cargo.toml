@@ -19,3 +19,22 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true
+
+[features]
+default = []
+local-control-api = ["dep:axum", "dep:serde", "dep:subtle"]
+
+[dependencies.axum]
+version = "0.8"
+optional = true
+
+[dependencies.serde]
+workspace = true
+optional = true
+
+[dependencies.subtle]
+version = "2"
+optional = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
