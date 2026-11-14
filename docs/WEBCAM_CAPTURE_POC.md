@@ -43,3 +43,7 @@ Sen o feature, o programa mantén a interface habitual e explica que a captura U
 ## Validación da seguinte etapa: varias fontes
 
 A rama dependente `feat/concurrent-gstreamer-inputs` conserva unha sesión de `CameraSession` por `InputId`, non pecha unha fonte ao engadir outra e libera o seu pipeline ao eliminar a entrada. A proba `two_synthetic_sources_capture_concurrently` abre dúas fontes `videotestsrc` simultáneas, comproba fotogramas RGBA en ambas e confirma que pechar unha non detén a outra. Esta proba necesita GStreamer no CI Linux e non substitúe probas con dúas cámaras USB reais. Antes de produción deberán implementarse identificadores físicos persistentes, enumeración de modos e sincronización por timestamps.
+
+## Timestamps de captura (prototipo)
+
+Cada `CameraFrame` transporta agora `pts_ns` e `duration_ns` opcionais, copiados dos metadatos de `GstBuffer`. A proba de fonte sintética comproba que se recibiu un PTS. O valor é relativo ao pipeline de cada fonte: **non é un reloxo global compartido entre dúas cámaras**, non acredita sincronía A/V e non debe compararse directamente con PTS doutro pipeline sen mapear as bases temporais. Un dispositivo real pode non proporcionar PTS; neste caso o campo é `None`. A GUI segue amosando texturas sen usar estes tempos para compoñer a saída broadcast.
