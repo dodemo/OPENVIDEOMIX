@@ -162,6 +162,15 @@ impl ReferenceOutput {
         self.sources.get(&input).map(FrameQueue::dropped_frames)
     }
 
+    /// PTS of the frame actually selected at the last successful render.
+    pub fn source_selected_pts_ns(&self, input: InputId) -> Option<u64> {
+        self.sources
+            .get(&input)?
+            .last
+            .as_ref()
+            .map(|frame| frame.pts_ns)
+    }
+
     pub fn remove_source(&mut self, input: InputId) {
         self.sources.remove(&input);
     }

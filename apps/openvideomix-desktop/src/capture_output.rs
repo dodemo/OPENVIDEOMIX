@@ -117,6 +117,10 @@ impl CaptureOutput {
         self.stats.get(&input)
     }
 
+    pub fn source_selected_pts_ns(&self, input: InputId) -> Option<u64> {
+        self.output.source_selected_pts_ns(input)
+    }
+
     /// Compose Program and OV1–OV4 at a supplied common-clock deadline.
     /// No future frame leaks into output. Missing sources are explicit errors.
     pub fn render_at(

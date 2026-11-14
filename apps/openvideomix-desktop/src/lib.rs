@@ -6,3 +6,6 @@ pub mod program_recording;
 pub mod capture;
 #[cfg(feature = "gstreamer-capture")]
 pub mod capture_output;
+
+#[cfg(feature = "gstreamer-capture")]
+pub mod output_worker;
