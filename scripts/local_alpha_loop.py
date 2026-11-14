@@ -194,13 +194,28 @@ def fingerprint(report: dict) -> str:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
+def protected_digest() -> str:
+    """A coding agent may not rewrite its own verifier or its safety policy."""
+    relative = ("scripts/local_alpha_loop.py", "START-OPENVIDEOMIX-AGENT.cmd",
+                "opencode.jsonc", "tests/test_local_alpha_loop.py")
+    digest = hashlib.sha256()
+    for filename in relative:
+        path = ROOT / filename
+        digest.update(filename.encode("utf-8"))
+        digest.update(path.read_bytes() if path.is_file() else b"MISSING")
+    return digest.hexdigest()
+
+
 def agent_pass(round_id: int, model: str) -> dict:
+    before = protected_digest()
     instruction = (
         "Read docs/LOCAL_WINDOWS_ALPHA_AGENT.md, docs/ROADMAP.md, and "
         "local-results/WINDOWS_ALPHA_RESULTS.json. Work ONLY on issue #46. "
         "Make one narrow concrete code or offline packaging improvement, not only a plan. "
         "The independent runner will execute tests AFTER you exit. "
         "Read failures and avoid repeating identical attempts. "
+        "Do not edit scripts/local_alpha_loop.py, START-OPENVIDEOMIX-AGENT.cmd, "
+        "opencode.jsonc or tests/test_local_alpha_loop.py; these are trusted harness files. "
         "No elevated installs, destructive operations, paid APIs, git push, or merging. "
         "If a physical action or permission is indispensable, write one action to "
         "local-results/AGENT_BLOCKER.txt. Finish with a brief Galician summary."
@@ -208,9 +223,14 @@ def agent_pass(round_id: int, model: str) -> dict:
     executable = os.environ.get("OPENVIDEOMIX_OPENCODE") or shutil.which("opencode")
     if not executable:
         return {"name": "local-agent", "status": "BLOCKED", "reason": "OpenCode executable not found"}
-    return logged(f"opencode-{round_id}",
-                  [executable, "run", "--standalone", "--auto", "--agent", "build", "--model", model, instruction],
-                  2700, round_id)
+    result = logged(f"opencode-{round_id}",
+                    [executable, "run", "--standalone", "--auto", "--agent", "build",
+                     "--model", model, instruction],
+                    2700, round_id)
+    if protected_digest() != before:
+        result["status"] = "BLOCKED"
+        result["reason"] = "The agent modified a protected verifier/safety file"
+    return result
 
 
 def locked_loop(args: argparse.Namespace) -> int:
