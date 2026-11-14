@@ -1,0 +1,15 @@
+{
+  "decoded_frames": 214,
+  "first_mean_rgb": [
+    120,
+    137,
+    131
+  ],
+  "last_mean_rgb": [
+    178,
+    14,
+    32
+  ],
+  "first_red_decoded_frame": 81,
+  "red_frames": 133
+}

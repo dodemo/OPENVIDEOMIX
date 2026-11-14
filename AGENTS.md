@@ -46,8 +46,8 @@ OPENVIDEOMIX/
 - **GUI:** Preview/Program, imaxes PNG/WebP/JPG e un overlay de demostración. A GUI non constitúe unha saída audiovisual codificada.
 - **MIDI:** MIDI Learn, perfís e adaptación opcional; falta proba con hardware físico.
 - **OpenDeck:** complemento OpenAction independente e API local autenticada; falta validación sobre dispositivos reais e feedback continuo.
-- **Captura real:** GStreamer está proposto nas PR #22 e #23. Non describir estas funcións como integradas en `main` ata fusionar as PR e completar as probas.
-- **Non operativo en produción:** compositor GPU conectado ao fluxo de saída, audio real, gravación, RTMP, sincronización A/V, PTZ e 1080p50 verificado. Os medidores e contadores de GUI poden ser simulados.
+- **Captura real:** #22/#23 están integradas en `main`; sesións GStreamer independentes. Esta rama engade un estudo sintético de catro fontes → CUT → Program CPU real → WebM con ton de proba. Ver `docs/DESKTOP_PROGRAM_TEST.md` para evidencias e perdas; non inferir cámaras físicas ou 1080p50 sostido.
+- **Non operativo en produción:** compositor GPU, audio capturado/mesturado, gravación 1080p50 sostida, RTMP, sincronización física A/V e PTZ. A gravación de proba declara os ocos reais; os medidores quedan a cero sen captura de audio. A GUI aínda conserva indicadores de demostración.
 - **Licenzas:** GStreamer require auditoría de plugins/códecs; libobs non é unha dependencia aprobada do proxecto MIT.
 
 O estado válido é o comprobado no código e CI, non o indicado por capturas de pantalla ou documentación antiga. Consultar [README.md](README.md) e [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

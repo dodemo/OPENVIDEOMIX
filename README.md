@@ -4,7 +4,7 @@
 
 **Plataformas obxectivo: Windows, Linux e macOS (Intel e Apple Silicon).** As tres teñen igual prioridade arquitectónica. O escritorio actual usa `eframe/egui`; a elección definitiva da interface e do compositor debe verificarse co rendemento real.
 
-> **Estado: prototipo técnico, non apto para emisións en produción.** A interface inclúe elementos de demostración. Non existe aínda un fluxo completo de captura → composición → audio → codificación → gravación/emisión. Ningún indicador de refresco da GUI acredita 1080p50 de saída.
+> **Estado: prototipo técnico, non apto para emisións en produción.** A interface inclúe elementos de demostración. Esta rama incorpora un percorrido de vídeo sintético → Preview → CUT → Program real → WebM con ton de proba. O rendemento de gravación 1080p50 e o audio capturado seguen pendentes. Ningún indicador de refresco da GUI acredita 1080p50 de saída.
 
 ## Perfil audiovisual predeterminado
 
@@ -12,25 +12,25 @@
 
 Un dispositivo que anuncie só 1080p30 ou unha resolución inferior non se tratará como fonte 1080p50 nativa. A aplicación debe indicar a necesidade de conversión ou permitir seleccionar outro modo compatible; non se debe efectuar unha degradación silenciosa nin confundir FPS solicitados con FPS medidos. As fontes sintéticas e probas reducidas a 640 × 360 / 30 FPS son exclusivamente probas de captura e non cumpren os criterios de aceptación de produción.
 
-## Funcións dispoñibles en `main`
+## Funcións desta revisión de desenvolvemento
 
 | Área | Que existe hoxe | Limitación importante |
 | --- | --- | --- |
-| Preview / Program | Consola de dobre monitor, selección de entradas e CUT lóxico, co estado centralizado | Non constitúe unha saída broadcast codificada |
+| Preview / Program | Consola de dobre monitor e CUT centralizado; estudo opt-in con catro sinais de proba e Program CPU real | O percorrido sintético grava WebM, pero perde fotogramas; non está cualificado para emisión |
 | Imaxes | Apertura de PNG, WebP e JPG e presentación na interface; unha superposición con alfa en Program | Non hai aínda compositor de saída real |
-| Cámaras USB/UVC | Captura opt-in con GStreamer da cámara predeterminada e fonte sintética; modelos de capacidades | Selección física persistente e varias webcams aínda pendentes |
-| Transicións | Compositor **de referencia de CPU**, con CUT, FADE, WIPE e ata catro overlays, probado píxel a píxel | O compositor de referencia **non está conectado** ao escritorio nin usa a GPU. FADE/WIPE/T-Bar da GUI están desactivados |
+| Cámaras USB/UVC | Captura opt-in con GStreamer da cámara predeterminada e fonte sintética; modelos de capacidades | Sesións independentes e detección asíncrona; selección física persistente e varias webcams reais pendentes |
+| Transicións | Compositor **de referencia de CPU**, con CUT, FADE, WIPE e ata catro overlays, probado píxel a píxel | CUT conectado ao estudo sintético; GPU e MIX/WIPE do escritorio pendentes. Sen T-Bar/TAKE |
 | Control de realización | Comandos tipados compartidos por GUI, MIDI e API; tradutor restrinxido de nomes de atallos de vMix | Non é compatible con toda a API de vMix |
 | MIDI | Adaptador nativo opcional, MIDI Learn, perfís JSON e *soft takeover* | Compilación/CI verificadas; falta proba de controladores físicos |
 | OpenDeck / Stream Deck | Complemento OpenAction separado: CUT, seleccionar Preview e alternar Overlay 1 | Paquetes de proba para as catro plataformas; falta validación cun dispositivo e instalador distribuíble |
 | API local | Servidor HTTP opt-in autenticado, só en `127.0.0.1:21873` | Sen exposición á LAN, WebSocket nin feedback continuo de tally |
-| Audio, gravación e streaming | Modelos de GUI e gravador headless WebM opt-in con PCM fornecido | Sen audio capturado/mesturado nin gravación integrada no escritorio; streaming pendente |
+| Audio, gravación e streaming | Gravación opt-in de Program real en WebM desde o escritorio, con ton xerado e ocos temporais conservados | Sen audio capturado/mesturado, 1080p50 sostido nin streaming |
 
-O tempo da interface, o contador de FPS e os medidores de audio actuais poden ser simulados. **Non indican cadencia audiovisual medida, mestura de son real, emisión nin gravación.** Os botóns de saída e as transicións non implementadas están desactivados.
+Os indicadores de demostración da interface non acreditan cadencia de saída. Os medidores de audio quedan a cero e indican ausencia de captura. A gravación de proba ten estado e contas reais; a emisión e as transicións non implementadas seguen desactivadas.
 
 ## Probas de vídeo en desenvolvemento
 
-A [PR #22](https://github.com/dodemo/OPENVIDEOMIX/pull/22), xa integrada en `main`, introduce unha primeira ruta opt-in de captura USB predeterminada e vídeo sintético mediante GStreamer, presentados como texturas na GUI. A [PR #23](https://github.com/dodemo/OPENVIDEOMIX/pull/23), dependente da anterior, incorpora varias sesións de vídeo independentes e probas con dúas fontes sintéticas. **As sesións concorrentes da #23 non forman parte de `main` ata a súa integración.**
+A [PR #22](https://github.com/dodemo/OPENVIDEOMIX/pull/22), xa integrada en `main`, introduce unha primeira ruta opt-in de captura USB predeterminada e vídeo sintético mediante GStreamer, presentados como texturas na GUI. A [PR #23](https://github.com/dodemo/OPENVIDEOMIX/pull/23) tamén está integrada en `main`: incorpora sesións independentes e probas con fontes sintéticas. Esta rama conecta catro sinais de proba co Program e a gravación; as PR encadeadas deben completar a súa integración antes de describir toda a ruta como dispoñible en `main`.
 
 Ningunha destas probas garante aínda selección individual de varias webcams físicas, 1080p50, sincronización A/V nin rendemento de produción. A compatibilidade coa OBSBOT Tiny 2 está prevista, non validada sobre hardware real.
 
@@ -72,12 +72,22 @@ O **código propio** de OPENVIDEOMIX publícase baixo [MIT](LICENSE). Os códecs
 
 GitHub Actions comproba código de Rust e funcións opcionais en Windows, Linux e macOS Intel/Apple Silicon. Unha CI verde indica compilación e probas automatizadas do alcance declarado; **non substitúe** probas de latencia, reloxo, sincronización, dispositivos físicos ou estabilidade nunha realización en directo.
 
+## Proba audiovisual desde o escritorio
+
+```sh
+cargo run --release -p openvideomix-desktop --features gstreamer-capture,gstreamer-recording
+```
+
+Inicia o estudo de catro sinais, selecciona PVW T1–T4, preme CUT e usa GRAVAR TESTE.
+Grava o Program composto con ton de proba de 1 kHz, non micrófono. Consulta
+[o procedemento, vídeo real e límites medidos](docs/DESKTOP_PROGRAM_TEST.md).
+
 ## Gravación headless en desenvolvemento
 
 O feature opt-in `gstreamer-recording` incorpora un gravador WebM de Program
 RGBA composto e PCM estéreo a 48 kHz, cun exemplo reproducible independente da
 GUI e probas de descodificación. Usa o perfil predeterminado 1920×1080 a 50/1,
 CPU VP8/Vorbis, colas acoutadas e finalización EOS. **É unha proba técnica**:
-o exemplo emprega o compositor de referencia en CPU e son xerado; non conecta
-a captura, o motor de audio ou o compositor GPU nin activa RECORD no escritorio.
+o exemplo emprega o compositor de referencia en CPU e son xerado; o feature illado non conecta o motor de audio ou o compositor GPU. A combinación
+con `gstreamer-capture` activa a gravación de proba do estudo sintético descrito arriba.
 Consulta [o alcance e as probas](docs/PROGRAM_RECORDING_POC.md).

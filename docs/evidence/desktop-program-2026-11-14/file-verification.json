@@ -1,0 +1,23 @@
+{
+  "video_codec": "vp8",
+  "width": 1920,
+  "height": 1080,
+  "nominal_video_rate": "50/1",
+  "video_packets": 214,
+  "first_video_pts_s": 0.0,
+  "last_video_pts_s": 12.44,
+  "maximum_video_pts_gap_s": 0.19999999999999973,
+  "missing_video_slots": 409,
+  "container_duration_s": 12.46,
+  "file_video_packets_per_second": 17.174959871589085,
+  "audio_codec": "vorbis",
+  "audio_rate_hz": 48000,
+  "audio_channels": 2,
+  "decoded_audio_sample_frames": 598592,
+  "decoded_audio_duration_s": 12.470666666666666,
+  "decoded_pcm_peak_dbfs": -7.580996033890194,
+  "decoded_pcm_rms_dbfs": -10.910257193983881,
+  "decode_verified": true,
+  "qualification": "file-only; live cadence, physical hardware and capture A/V sync not verified",
+  "audio_minus_video_end_s": 0.010666666666667268
+}
