@@ -5,10 +5,14 @@ use chrono::Local;
 use eframe::egui::{self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2};
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
 use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
+#[cfg(feature = "local-control-api")]
+use crate::remote_control::RemoteControl;
 
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
     pub dispatcher: CommandDispatcher,
+    #[cfg(feature = "local-control-api")]
+    remote: Option<RemoteControl>,
     pub status_notification: Option<String>,
     pub show_settings: bool,
     pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
@@ -23,6 +27,8 @@ impl OpenVideoMixApp {
         let mut app = Self {
             mixer: MixerState::default(),
             dispatcher: CommandDispatcher::default(),
+            #[cfg(feature = "local-control-api")]
+            remote: None,
             status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
             show_settings: false,
             settings_tab: 0,
@@ -32,6 +38,15 @@ impl OpenVideoMixApp {
             loaded_textures: HashMap::new(),
         };
         app.refresh_video_devices();
+        #[cfg(feature = "local-control-api")]
+        match RemoteControl::start_if_configured(&app.mixer) {
+            Ok(Some(server)) => {
+                app.remote = Some(server);
+                app.status_notification = Some("API local autenticada activa en 127.0.0.1:21873".into());
+            }
+            Ok(None) => {}
+            Err(error) => app.status_notification = Some(format!("API local desactivada: {error}")),
+        }
         app
     }
 
@@ -285,6 +300,10 @@ impl OpenVideoMixApp {
 
 impl eframe::App for OpenVideoMixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(feature = "local-control-api")]
+        if let Some(remote) = &mut self.remote {
+            remote.poll(&mut self.dispatcher, &mut self.mixer);
+        }
         self.update_simulation();
 
         // Keyboard Shortcuts (CUT with Space/Enter; other transitions unavailable)
@@ -674,6 +693,10 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
+        #[cfg(feature = "local-control-api")]
+        if let Some(remote) = &mut self.remote {
+            remote.refresh_snapshot(&self.dispatcher, &self.mixer);
+        }
         // UI-only repaint scheduling. Not a guaranteed media/output frame cadence.
         let target_fps = self.mixer.settings.target_fps_value();
         let frame_interval_millis = (1000.0 / target_fps) as u64;
