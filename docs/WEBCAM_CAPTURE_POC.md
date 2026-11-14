@@ -27,7 +27,7 @@ Sen o feature, o programa mantén a interface habitual e explica que a captura U
 2. Compilar con e sen feature nos tres sistemas operativos. Comprobar que o plugin `autovideosrc`, `videoconvert`, `videoscale`, `videorate` e `appsink` están instalados.
 3. Conectar unha cámara UVC; engadila, seleccionar a entrada en Preview e trasladala a Program. Confirmar movemento real e estado de erro cando se desconecta.
 4. Comprobar que saír da aplicación ou eliminar a fonte pecha o pipeline e devolve o dispositivo ao sistema.
-5. Comprobar conversión RGBA e *strides* reais. **Esta versión descarta buffers que inclúan padding de filas.** Substituír a lectura de `map_readable()` por mapeo de `VideoFrame`/stride para soportar todos os formatos reais.
+5. A lectura actual emprega `GstVideoFrame` e respecta o `stride` das filas para RGBA. Verificar buffers con padding de filas, erros de metadatos, orientación e diferentes drivers; non se admite aínda un formato distinto de RGBA nin cópias GPU sen paso por CPU.
 6. Medir latencia de extremo a extremo, uso CPU/memoria, drops e fotogramas realmente recibidos, non os repintados da GUI.
 7. Antes de activar 1080p50 e OBSBOT Tiny 2, enumerar capacidades reais e permitir seleccionar cámara, resolución e codec MJPEG/H.264. Evitar abrir `autovideosrc` para todas as entradas.
 8. Revisar licenzas de GStreamer e plugins redistribuídos, permisos (especialmente macOS), instaladores e ruta de plugins.
