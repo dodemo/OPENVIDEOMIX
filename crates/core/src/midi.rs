@@ -57,7 +57,7 @@ impl MidiEvent {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MidiSource {
     Note { channel: u8, number: u8 },
     ControlChange { channel: u8, number: u8 },
@@ -108,6 +108,54 @@ pub enum MidiTarget {
 pub struct MidiBinding {
     pub source: MidiSource,
     pub target: MidiTarget,
+}
+
+/// Portable controller mappings. Explicit schema version enables future
+/// migrations and avoids tying the profile to an OS-specific MIDI port index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MidiProfile {
+    pub schema_version: u32,
+    pub name: String,
+    pub bindings: Vec<MidiBinding>,
+}
+
+impl MidiProfile {
+    pub const CURRENT_VERSION: u32 = 1;
+    pub const MAX_BINDINGS: usize = 512;
+
+    pub fn new(name: impl Into<String>, bindings: Vec<MidiBinding>) -> Self {
+        Self {
+            schema_version: Self::CURRENT_VERSION,
+            name: name.into(),
+            bindings,
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version != Self::CURRENT_VERSION {
+            return Err(format!(
+                "Unsupported MIDI profile version {}",
+                self.schema_version
+            ));
+        }
+        if self.name.trim().is_empty() || self.name.chars().count() > 100 {
+            return Err("Profile name must contain 1-100 characters".into());
+        }
+        if self.bindings.len() > Self::MAX_BINDINGS {
+            return Err("Too many MIDI bindings".into());
+        }
+        let mut seen = std::collections::HashSet::new();
+        for binding in &self.bindings {
+            if !binding.source.valid() {
+                return Err("MIDI source channel or number is outside 0-15/0-127".into());
+            }
+            if !seen.insert(binding.source) {
+                return Err("MIDI profile has duplicate source assignments".into());
+            }
+        }
+        Ok(())
+    }
 }
 
 /// State changes must be dispatched by CommandDispatcher; this adapter only
@@ -373,6 +421,35 @@ mod tests {
         assert!(mapper.process(send(103), &mixer).is_empty());
         assert!(mapper.process(send(80), &mixer).is_empty());
         assert_eq!(mapper.process(send(25), &mixer).len(), 1);
+    }
+
+    #[test]
+    fn profile_validates_version_channels_and_duplicates() {
+        let binding = MidiBinding {
+            source: MidiSource::ControlChange {
+                channel: 0,
+                number: 7,
+            },
+            target: MidiTarget::MasterVolume,
+        };
+        let profile = MidiProfile::new("Studio", vec![binding.clone()]);
+        profile.validate().unwrap();
+        let encoded = serde_json::to_string(&profile).unwrap();
+        let decoded: MidiProfile = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, profile);
+
+        let mut invalid = profile.clone();
+        invalid.schema_version = 2;
+        assert!(invalid.validate().is_err());
+        invalid = profile.clone();
+        invalid.bindings.push(binding);
+        assert!(invalid.validate().is_err());
+        invalid = profile;
+        invalid.bindings[0].source = MidiSource::Note {
+            channel: 16,
+            number: 12,
+        };
+        assert!(invalid.validate().is_err());
     }
 
     #[test]
