@@ -90,15 +90,20 @@ impl CameraIdentity {
     /// nonempty serial or a nonempty physical topology path.
     /// The OS device ID is intentionally not used as a persistent fallback.
     pub fn persistent_key(&self) -> Option<String> {
-        if let Some(serial) = self.serial_number.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(serial) = self
+            .serial_number
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             return Some(format!(
                 "usb:{:04x}:{:04x}:serial:{}",
-                self.vendor_id?,
-                self.product_id?,
-                serial
+                self.vendor_id?, self.product_id?, serial
             ));
         }
-        let topology = self.topology_path.as_deref().filter(|s| !s.trim().is_empty())?;
+        let topology = self
+            .topology_path
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())?;
         Some(format!("port:{}", topology))
     }
 }
