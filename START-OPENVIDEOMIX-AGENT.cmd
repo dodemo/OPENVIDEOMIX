@@ -45,7 +45,7 @@ if not exist "local-results" mkdir "local-results"
 if errorlevel 1 goto :startup_error
 
 rem All model calls are local through the owner's existing Ollama.
-rem --auto accepts OpenCode permission prompts. Never run this as Administrator.
+rem Uses the standard build agent permissions. Never run this as Administrator.
 set "MODEL=ollama/devstral-small-2:24b-instruct-2512-q4_K_M"
 set "STATEFILE=local-results\agent-state.txt"
 set /a ROUND=0
@@ -57,7 +57,7 @@ echo.
 echo === AGENT SESSION !ROUND! / 4 ===
 > "!STATEFILE!" echo RUNNING
 
-"!OPENCODE_EXE!" run --standalone --auto --agent build --model "!MODEL!" "Read docs/LOCAL_WINDOWS_ALPHA_AGENT.md and AGENTS.md. Execute the current P0 Windows Alpha task, not a planning-only response. Continue from local-results/WINDOWS_ALPHA_REPORT.md when it exists. Build, test, refine, package and measure as far as possible using only Ollama local. Write local-results/WINDOWS_ALPHA_REPORT.md and exactly DONE, BLOCKED or CONTINUE to local-results/agent-state.txt before exiting. Never use paid AI APIs, elevation, destructive operations or git push."
+"!OPENCODE_EXE!" run --standalone --agent build --model "!MODEL!" "Read docs/LOCAL_WINDOWS_ALPHA_AGENT.md and AGENTS.md. Execute the current P0 Windows Alpha task, not a planning-only response. Continue from local-results/WINDOWS_ALPHA_REPORT.md when it exists. Build, test, refine, package and measure as far as possible using only Ollama local. Write local-results/WINDOWS_ALPHA_REPORT.md and exactly DONE, BLOCKED or CONTINUE to local-results/agent-state.txt before exiting. Never use paid AI APIs, elevation, destructive operations or git push."
 set "RC=!errorlevel!"
 if not "!RC!"=="0" (
   echo ERROR: OpenCode exited with code !RC!.
