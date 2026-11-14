@@ -90,15 +90,14 @@ impl CameraIdentity {
     /// nonempty serial or a nonempty physical topology path.
     /// The OS device ID is intentionally not used as a persistent fallback.
     pub fn persistent_key(&self) -> Option<String> {
-        if let Some(serial) = self
-            .serial_number
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            return Some(format!(
-                "usb:{:04x}:{:04x}:serial:{}",
-                self.vendor_id?, self.product_id?, serial
-            ));
+        if let (Some(vendor), Some(product), Some(serial)) = (
+            self.vendor_id,
+            self.product_id,
+            self.serial_number
+                .as_deref()
+                .filter(|s| !s.trim().is_empty()),
+        ) {
+            return Some(format!("usb:{vendor:04x}:{product:04x}:serial:{serial}"));
         }
         let topology = self
             .topology_path
@@ -259,6 +258,13 @@ mod tests {
         let original = device.persistent_key();
         device.os_device_id = "/dev/video9".into();
         assert_eq!(device.persistent_key(), original);
+        device.vendor_id = None;
+        assert_eq!(
+            device.persistent_key(),
+            Some("port:usb-1.3".into()),
+            "Use physical topology when USB vendor/product IDs are unavailable"
+        );
+        device.vendor_id = Some(0x1234);
         device.serial_number = None;
         assert_eq!(device.persistent_key(), Some("port:usb-1.3".into()));
         device.topology_path = None;
