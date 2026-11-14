@@ -228,6 +228,57 @@ mod tests {
     }
 
     #[test]
+    fn capture_failure_is_reported_even_with_a_full_frame_queue() {
+        // An error must not be silently discarded when three pending frames
+        // occupy the bounded channel. Deliberately use an invalid source.
+        let (sender, receiver) = mpsc::sync_channel(3);
+        for _ in 0..3 {
+            sender
+                .send(CameraEvent::Frame(CameraFrame {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![0, 0, 0, 255],
+                }))
+                .expect("frame queue should accept three items");
+        }
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::spawn(move || {
+            if let Err(message) = run_capture(
+                &sender,
+                &worker_stop,
+                "this_gstreamer_element_does_not_exist",
+            ) {
+                let mut event = CameraEvent::Error(message);
+                while !worker_stop.load(Ordering::Relaxed) {
+                    match sender.try_send(event) {
+                        Ok(()) | Err(TrySendError::Disconnected(_)) => break,
+                        Err(TrySendError::Full(pending)) => {
+                            event = pending;
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                    }
+                }
+            }
+        });
+
+        // Drain the pre-filled frames and allow the worker to publish its
+        // terminal error into the newly available channel capacity.
+        for _ in 0..3 {
+            assert!(matches!(
+                receiver.recv_timeout(Duration::from_secs(2)),
+                Ok(CameraEvent::Frame(_))
+            ));
+        }
+        assert!(matches!(
+            receiver.recv_timeout(Duration::from_secs(5)),
+            Ok(CameraEvent::Error(_))
+        ));
+        stop.store(true, Ordering::Relaxed);
+        worker.join().expect("capture worker must terminate");
+    }
+
+    #[test]
     fn two_synthetic_sources_capture_concurrently() {
         // Two independent pipelines simulate distinct video inputs without
         // taking ownership of a physical webcam.
