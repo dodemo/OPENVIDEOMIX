@@ -25,6 +25,7 @@ serde_json = { workspace = true, optional = true }
 default = []
 local-control-api = ["dep:axum", "dep:serde", "dep:subtle"]
 midi-input = ["dep:midir", "dep:serde_json"]
+gstreamer-capture = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
 
 [dependencies.axum]
 version = "0.8"
@@ -43,4 +44,16 @@ tower = { version = "0.5", features = ["util"] }
 
 [dependencies.midir]
 version = "0.10"
+optional = true
+
+[dependencies.gstreamer]
+version = "0.24"
+optional = true
+
+[dependencies.gstreamer-app]
+version = "0.24"
+optional = true
+
+[dependencies.gstreamer-video]
+version = "0.24"
 optional = true

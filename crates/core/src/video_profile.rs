@@ -120,11 +120,7 @@ mod tests {
 
     #[test]
     fn thirty_fps_source_requires_explicit_conversion() {
-        let source = capabilities(vec![mode(
-            1920,
-            1080,
-            FrameRate::new(30, 1).unwrap(),
-        )]);
+        let source = capabilities(vec![mode(1920, 1080, FrameRate::new(30, 1).unwrap())]);
         assert_eq!(
             VideoProfile::default().negotiate_exact(&source, &[PixelFormat::Mjpeg]),
             SourceModeDecision::ConversionRequired
@@ -133,11 +129,7 @@ mod tests {
 
     #[test]
     fn reduced_resolution_is_not_misrepresented_as_full_hd() {
-        let source = capabilities(vec![mode(
-            640,
-            360,
-            FrameRate::PAL_50,
-        )]);
+        let source = capabilities(vec![mode(640, 360, FrameRate::PAL_50)]);
         assert_eq!(
             VideoProfile::default().negotiate_exact(&source, &[]),
             SourceModeDecision::ConversionRequired
