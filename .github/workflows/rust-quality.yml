@@ -9,7 +9,35 @@ on:
 permissions:
   contents: read
 
+# The formatter applies deterministic mechanical changes only on the dedicated
+# webcam PoC branch. All other branches remain read-only.
+
+
 jobs:
+  format-capture-branch:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/gstreamer-webcam-capture' && github.repository == 'dodemo/OPENVIDEOMIX'
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/gstreamer-webcam-capture
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format workspace
+        run: cargo fmt --all
+      - name: Push mechanical format-only correction
+        run: |
+          if ! git diff --quiet; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -- '*.rs'
+            git commit -m 'style: apply rustfmt to camera PoC'
+            git push origin HEAD:feat/gstreamer-webcam-capture
+          fi
+
   core-desktop:
     name: Base / ${{ matrix.os }}
     strategy:
