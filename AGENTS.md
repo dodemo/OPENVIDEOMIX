@@ -11,6 +11,7 @@ Benvido/a. Este documento define o contexto, a arquitectura, as normas de enxeñ
 - **Interface Gráfica (GUI)**: `egui` + `eframe` na versión actual; medir rendemento antes de considerala definitiva e manter o compositor independente.
 - **Plataforma de destino**: Windows, Linux e macOS (Intel e Apple Silicon), obrigatorias desde o inicio.
 - **Estándar obxectivo**: vídeo 50/1 fps (20 ms por fotograma), ademais de 25/1, 60000/1001 e 60/1. A cadencia da GUI non acredita cadencia de saída.
+- **Predeterminado obrigatorio**: proxectos novos, Preview, Program, compositor e saídas deben solicitar **1920×1080 progresivo a 50/1 FPS**, con audio a **48 kHz**. Os formatos alternativos son opcións explícitas, non degradacións silenciosas. Verificar modos físicos e medir a cadencia real antes de declarar 1080p50 operativo. As probas sintéticas a 640×360/30 son só desenvolvemento.
 - **Estudo Completo de vMix e OBS**: Consulta obrigatoriamente [docs/VMIX_OBS_ANALYSIS.md](docs/VMIX_OBS_ANALYSIS.md) para comprender o paradigma de *Inputs*, as canles de *Overlay 1-4*, o bus de son e os 5 alicerces da realización televisiva.
 
 ---
