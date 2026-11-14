@@ -5,6 +5,7 @@
 
 pub mod camera;
 pub mod camera_registry;
+pub mod media_timebase;
 
 pub mod reference_compositor;
 
