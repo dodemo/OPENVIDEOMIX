@@ -15,7 +15,7 @@ use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 use openvideomix_core::midi::{
     MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget,
 };
-use openvideomix_core::{InputId, InputKind, MixerState, VideoInput};
+use openvideomix_core::{DEMO_CAMERA_PATH, InputId, InputKind, MixerState, VideoInput};
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
 use std::collections::HashMap;
@@ -63,6 +63,14 @@ impl GuiCommandGate {
     }
 }
 
+fn camera_placeholder_text(device_path: &str) -> String {
+    if device_path == DEMO_CAMERA_PATH {
+        "CÁMARA DE DEMOSTRACIÓN\nCaptura non iniciada; dispositivo non seleccionado".into()
+    } else {
+        format!("WEBCAM: {device_path}\nSen fotogramas reais (captura non iniciada)")
+    }
+}
+
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
     pub dispatcher: CommandDispatcher,
@@ -88,6 +96,7 @@ pub struct OpenVideoMixApp {
     pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
     pub last_frame_time: Instant,
     pub animated_tick: f32,
+    #[cfg(target_os = "linux")]
     pub connected_v4l2_devices: Vec<String>,
     pub loaded_textures: HashMap<InputId, TextureHandle>,
     #[cfg(feature = "gstreamer-capture")]
@@ -136,6 +145,7 @@ impl OpenVideoMixApp {
             settings_tab: 0,
             last_frame_time: Instant::now(),
             animated_tick: 0.0,
+            #[cfg(target_os = "linux")]
             connected_v4l2_devices: Vec::new(),
             loaded_textures: HashMap::new(),
             #[cfg(feature = "gstreamer-capture")]
@@ -431,7 +441,8 @@ impl OpenVideoMixApp {
         }
     }
 
-    /// Scan system for real video devices (/dev/video*)
+    /// Scan Linux video nodes; do not infer these paths on Windows or macOS.
+    #[cfg(target_os = "linux")]
     pub fn refresh_video_devices(&mut self) {
         self.connected_v4l2_devices.clear();
         for i in 0..16 {
@@ -747,10 +758,7 @@ impl OpenVideoMixApp {
                         painter.text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
-                            format!(
-                                "WEBCAM: {}\\nSen fotogramas reais (captura non iniciada)",
-                                device_path
-                            ),
+                            camera_placeholder_text(device_path),
                             egui::FontId::proportional(15.0),
                             Color32::from_rgb(240, 160, 60),
                         );
@@ -988,11 +996,14 @@ impl eframe::App for OpenVideoMixApp {
                 );
                 ui.separator();
                 ui.label(format!("CPU (demo): {:.1}%", self.mixer.cpu_usage_pct));
-                ui.separator();
-                ui.label(format!(
-                    "Nós V4L2 (Linux): {}",
-                    self.connected_v4l2_devices.len()
-                ));
+                #[cfg(target_os = "linux")]
+                {
+                    ui.separator();
+                    ui.label(format!(
+                        "Nós V4L2 (Linux): {}",
+                        self.connected_v4l2_devices.len()
+                    ));
+                }
                 ui.separator();
 
                 if let Some(msg) = &self.status_notification {
@@ -1468,17 +1479,23 @@ impl eframe::App for OpenVideoMixApp {
                         }
                         2 => {
                             ui.heading("Dispositivos de Captura Detectados");
-                            if ui.button("🔄 Refrescar Dispositivos").clicked() {
-                                self.refresh_video_devices();
-                            }
-                            if self.connected_v4l2_devices.is_empty() {
-                                ui.label("Non se detectaron cámaras web USB en /dev/video*");
-                                ui.label(RichText::new("👉 Podes conectar unha webcam USB e premer 'Refrescar Dispositivos'").color(Color32::KHAKI));
-                            } else {
-                                for dev in &self.connected_v4l2_devices {
-                                    ui.label(format!("✅ Dispositivo dispoñible: {}", dev));
+                            #[cfg(target_os = "linux")]
+                            {
+                                if ui.button("🔄 Refrescar Dispositivos").clicked() {
+                                    self.refresh_video_devices();
+                                }
+                                if self.connected_v4l2_devices.is_empty() {
+                                    ui.label("Non se detectaron nodos V4L2 en /dev/video*");
+                                } else {
+                                    for dev in &self.connected_v4l2_devices {
+                                        ui.label(format!("Nodo V4L2 dispoñible: {dev} (captura non iniciada)"));
+                                    }
                                 }
                             }
+                            #[cfg(not(target_os = "linux"))]
+                            ui.label("As cámaras iniciais son demostracións, non dispositivos físicos detectados.");
+                            #[cfg(not(feature = "gstreamer-capture"))]
+                            ui.label("Detección real de cámaras non activada nesta compilación.");
                             #[cfg(feature = "gstreamer-capture")]
                             {
                                 ui.separator();
@@ -1614,6 +1631,16 @@ impl eframe::App for OpenVideoMixApp {
 #[cfg(test)]
 mod gui_command_tests {
     use super::*;
+
+    #[test]
+    fn demo_camera_ui_never_claims_linux_hardware() {
+        let label = camera_placeholder_text(DEMO_CAMERA_PATH);
+        assert!(label.contains("DEMOSTRACIÓN"));
+        assert!(label.contains("Captura non iniciada"));
+        assert!(label.contains('\n'));
+        assert!(!label.contains("V4L2"));
+        assert!(!label.contains("/dev/video"));
+    }
     #[test]
     fn monitoring_is_bounded_without_mutating_the_production_pixels() {
         let rgba = vec![128; 1920 * 1080 * 4];
