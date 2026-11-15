@@ -69,7 +69,11 @@ impl RgbaFrame {
 pub enum Transition {
     Cut,
     Fade,
+    Mix,
     WipeLeftToRight,
+    WipeRightToLeft,
+    WipeTopToBottom,
+    WipeBottomToTop,
 }
 
 /// Compose between frames at progress 0..=1. CUT is an instantaneous take:
@@ -93,7 +97,7 @@ pub fn transition(
     let mut result = from.clone();
     match kind {
         Transition::Cut => unreachable!(),
-        Transition::Fade => {
+        Transition::Fade | Transition::Mix => {
             for ((a, b), output) in from
                 .pixels
                 .as_chunks::<4>()
@@ -127,38 +131,105 @@ pub fn transition(
                 }
             }
         }
+        Transition::WipeRightToLeft => {
+            let reveal_columns = (from.width as f64 * f64::from(progress)).floor() as usize;
+            let width = from.width as usize;
+            let start_col = width.saturating_sub(reveal_columns);
+            for (pixel_index, output) in result.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate()
+            {
+                if pixel_index % width >= start_col {
+                    output.copy_from_slice(&to.pixels[pixel_index * 4..pixel_index * 4 + 4]);
+                }
+            }
+        }
+        Transition::WipeTopToBottom => {
+            let reveal_rows = (from.height as f64 * f64::from(progress)).floor() as usize;
+            let width = from.width as usize;
+            for (pixel_index, output) in result.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate()
+            {
+                let row = pixel_index / width;
+                if row < reveal_rows {
+                    output.copy_from_slice(&to.pixels[pixel_index * 4..pixel_index * 4 + 4]);
+                }
+            }
+        }
+        Transition::WipeBottomToTop => {
+            let reveal_rows = (from.height as f64 * f64::from(progress)).floor() as usize;
+            let height = from.height as usize;
+            let width = from.width as usize;
+            let start_row = height.saturating_sub(reveal_rows);
+            for (pixel_index, output) in result.pixels.as_chunks_mut::<4>().0.iter_mut().enumerate()
+            {
+                let row = pixel_index / width;
+                if row >= start_row {
+                    output.copy_from_slice(&to.pixels[pixel_index * 4..pixel_index * 4 + 4]);
+                }
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Alpha-composite an overlay onto the base at an arbitrary (dest_x, dest_y) coordinate.
+/// The overlay can be smaller than the base frame (e.g. lower thirds, channel bugs, PIP).
+/// Out-of-bounds regions are clipped gracefully.
+pub fn overlay_at(
+    base: &RgbaFrame,
+    layer: &RgbaFrame,
+    dest_x: i32,
+    dest_y: i32,
+) -> Result<RgbaFrame, CompositeError> {
+    if base.width == 0 || base.height == 0 || layer.width == 0 || layer.height == 0 {
+        return Err(CompositeError::InvalidDimensions);
+    }
+    let mut result = base.clone();
+    let base_w = base.width as i32;
+    let base_h = base.height as i32;
+    let layer_w = layer.width as i32;
+    let layer_h = layer.height as i32;
+
+    for ly in 0..layer_h {
+        let by = dest_y + ly;
+        if by < 0 || by >= base_h {
+            continue;
+        }
+        for lx in 0..layer_w {
+            let bx = dest_x + lx;
+            if bx < 0 || bx >= base_w {
+                continue;
+            }
+
+            let base_idx = ((by as usize) * (base.width as usize) + (bx as usize)) * 4;
+            let layer_idx = ((ly as usize) * (layer.width as usize) + (lx as usize)) * 4;
+
+            let background = &base.pixels[base_idx..base_idx + 4];
+            let foreground = &layer.pixels[layer_idx..layer_idx + 4];
+
+            let a = f32::from(background[3]) / 255.0;
+            let b = f32::from(foreground[3]) / 255.0;
+            let out_alpha = b + a * (1.0 - b);
+
+            let out = &mut result.pixels[base_idx..base_idx + 4];
+            for channel in 0..3 {
+                let premultiplied = f32::from(foreground[channel]) * b
+                    + f32::from(background[channel]) * a * (1.0 - b);
+                out[channel] = if out_alpha > 0.0 {
+                    (premultiplied / out_alpha).round().clamp(0.0, 255.0) as u8
+                } else {
+                    0
+                };
+            }
+            out[3] = (out_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
     }
     Ok(result)
 }
 
 /// Alpha-composite an overlay onto the base in straight-alpha RGBA.
-/// Both frames share the same dimensions in this initial reference.
+/// Both frames share the same dimensions in this full-screen overlay function.
 pub fn overlay(base: &RgbaFrame, layer: &RgbaFrame) -> Result<RgbaFrame, CompositeError> {
     base.same_dimensions(layer)?;
-    let mut result = base.clone();
-    for ((background, foreground), output) in base
-        .pixels
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .zip(layer.pixels.as_chunks::<4>().0.iter())
-        .zip(result.pixels.as_chunks_mut::<4>().0.iter_mut())
-    {
-        let a = f32::from(background[3]) / 255.0;
-        let b = f32::from(foreground[3]) / 255.0;
-        let out_alpha = b + a * (1.0 - b);
-        for channel in 0..3 {
-            let premultiplied =
-                f32::from(foreground[channel]) * b + f32::from(background[channel]) * a * (1.0 - b);
-            output[channel] = if out_alpha > 0.0 {
-                (premultiplied / out_alpha).round().clamp(0.0, 255.0) as u8
-            } else {
-                0
-            };
-        }
-        output[3] = (out_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
-    }
-    Ok(result)
+    overlay_at(base, layer, 0, 0)
 }
 
 /// Apply up to four independently provided overlays, bottom to top.
@@ -249,5 +320,67 @@ mod tests {
             transition(&a, &a, Transition::Fade, f32::NAN),
             Err(CompositeError::InvalidProgress)
         );
+    }
+
+    #[test]
+    fn mix_transition_matches_fade_pixel_blend() {
+        let a = RgbaFrame::solid(1, 1, [255, 0, 0, 255]).unwrap();
+        let b = RgbaFrame::solid(1, 1, [0, 0, 255, 255]).unwrap();
+        let fade_result = transition(&a, &b, Transition::Fade, 0.5).unwrap();
+        let mix_result = transition(&a, &b, Transition::Mix, 0.5).unwrap();
+        assert_eq!(fade_result, mix_result);
+        assert_eq!(pixel(&mix_result, 0), [128, 0, 128, 255]);
+    }
+
+    #[test]
+    fn wipe_directions_geometry_tests() {
+        let red = RgbaFrame::solid(4, 4, [255, 0, 0, 255]).unwrap();
+        let blue = RgbaFrame::solid(4, 4, [0, 0, 255, 255]).unwrap();
+
+        // WipeRightToLeft at 50%: columns 2 and 3 should be blue, 0 and 1 red
+        let wipe_rl = transition(&red, &blue, Transition::WipeRightToLeft, 0.5).unwrap();
+        for y in 0..4 {
+            for x in 0..4 {
+                let p = pixel(&wipe_rl, y * 4 + x);
+                assert_eq!(p, if x >= 2 { [0, 0, 255, 255] } else { [255, 0, 0, 255] });
+            }
+        }
+
+        // WipeTopToBottom at 50%: rows 0 and 1 should be blue, 2 and 3 red
+        let wipe_tb = transition(&red, &blue, Transition::WipeTopToBottom, 0.5).unwrap();
+        for y in 0..4 {
+            for x in 0..4 {
+                let p = pixel(&wipe_tb, y * 4 + x);
+                assert_eq!(p, if y < 2 { [0, 0, 255, 255] } else { [255, 0, 0, 255] });
+            }
+        }
+
+        // WipeBottomToTop at 50%: rows 2 and 3 should be blue, 0 and 1 red
+        let wipe_bt = transition(&red, &blue, Transition::WipeBottomToTop, 0.5).unwrap();
+        for y in 0..4 {
+            for x in 0..4 {
+                let p = pixel(&wipe_bt, y * 4 + x);
+                assert_eq!(p, if y >= 2 { [0, 0, 255, 255] } else { [255, 0, 0, 255] });
+            }
+        }
+    }
+
+    #[test]
+    fn overlay_at_positions_smaller_layer_with_clipping() {
+        let base = RgbaFrame::solid(4, 4, [0, 0, 0, 255]).unwrap();
+        // A 2x2 green patch placed at (1, 1)
+        let patch = RgbaFrame::solid(2, 2, [0, 255, 0, 255]).unwrap();
+        let result = overlay_at(&base, &patch, 1, 1).unwrap();
+
+        for y in 0..4 {
+            for x in 0..4 {
+                let p = pixel(&result, y * 4 + x);
+                if (1..=2).contains(&x) && (1..=2).contains(&y) {
+                    assert_eq!(p, [0, 255, 0, 255]);
+                } else {
+                    assert_eq!(p, [0, 0, 0, 255]);
+                }
+            }
+        }
     }
 }
