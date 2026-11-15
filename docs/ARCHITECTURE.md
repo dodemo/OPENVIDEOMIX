@@ -9,7 +9,7 @@ OPENVIDEOMIX é un mesturador de vídeo en desenvolvemento, inspirado na operati
 - **Windows, Linux e macOS** son plataformas obrigatorias e de primeira clase. macOS inclúe Intel e Apple Silicon.
 - **Rust** é a linguaxe actual do núcleo e da GUI, pero pódense empregar pontes nativas C/C++/Swift/Objective-C cando se xustifiquen por medicións e licenzas.
 - **eframe/egui** fornece a GUI actual; a súa adecuación para varios monitores de vídeo e paneis desacoplables require medicións. O estado de produción e o compositor non deben depender de tipos de egui.
-- **GStreamer** é o candidato actual de captura/decodificación. A integración de captura está nas PR #22 e #23, non en `main` ata a súa aprobación. A biblioteca e os seus plugins deben pasar unha auditoría de licenzas e distribución por plataforma.
+- **GStreamer** é o compoñente actual de captura/decodificación baixo features opcionais. As rutas iniciais de captura USB predeterminada e sesións concorrentes con fontes sintéticas das PR #22 e #23 están integradas en `main`. A biblioteca e os seus plugins deben pasar unha auditoría de licenzas e distribución por plataforma.
 - **libobs** é unha alternativa para avaliar, non unha dependencia seleccionada. Non incorporar código GPL a un proxecto MIT sen decisión explícita de arquitectura e licenzas.
 - **Compositor**: existe un compositor RGBA de referencia en CPU, con probas de píxeles, pero non está conectado ao fluxo de vídeo do escritorio nin á saída codificada. Requírese unha implementación de produción acelerada por GPU e desacoplada da GUI.
 
@@ -36,7 +36,7 @@ GUI, teclado, API local autenticada, MIDI e OpenDeck deben converxer no mesmo bu
 
 ## Fases e probas de aceptación
 
-1. Validar e integrar en orde a captura sintética/USB da PR #22 e as sesións concorrentes da PR #23, con CI multiplataforma.
+1. Consolidada a integración inicial de captura sintética/USB (PR #22 e #23) con CI multiplataforma.
 2. Enumerar e seleccionar cámaras por identificador físico persistente e negociar modos reais, incluíndo 1080p50 cando o hardware o permita.
 3. Integrar timestamps, compositor GPU independente da GUI e monitorización real.
 4. Mesturar audio, medir dBFS, sincronizar e conectar unha saída audiovisual común a gravación e RTMP.
