@@ -4,7 +4,7 @@
 
 use openaction::*;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::Duration;
 
 const API: &str = "http://127.0.0.1:21873/v1/command";
