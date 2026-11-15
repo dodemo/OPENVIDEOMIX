@@ -64,6 +64,24 @@
       ]
     },
     {
+      "UUID": "com.openvideomix.control.program",
+      "Name": "Select Program",
+      "Tooltip": "Take a source directly to Program",
+      "Icon": "icon",
+      "Controllers": [
+        "Keypad"
+      ],
+      "SupportedInMultiActions": true,
+      "PropertyInspectorPath": "pi/input.html",
+      "States": [
+        {
+          "Title": "PROGRAM",
+          "FontSize": "14",
+          "ShowTitle": true
+        }
+      ]
+    },
+    {
       "UUID": "com.openvideomix.control.overlay1",
       "Name": "Toggle Overlay 1",
       "Tooltip": "Toggle source as Overlay 1",
