@@ -6,6 +6,8 @@ target/
 .DS_Store
 
 /recordings/
+/dist/
+/bin/
 
 # Private local Windows agent diagnostics, SDKs and unpackaged artifacts
 /local-results/
