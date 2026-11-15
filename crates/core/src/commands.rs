@@ -386,25 +386,37 @@ mod tests {
         dispatcher
             .dispatch(
                 &mut state,
-                ProductionCommand::ToggleOverlay { channel: 1, input: 1 },
+                ProductionCommand::ToggleOverlay {
+                    channel: 1,
+                    input: 1,
+                },
             )
             .unwrap();
         dispatcher
             .dispatch(
                 &mut state,
-                ProductionCommand::ToggleOverlay { channel: 2, input: 2 },
+                ProductionCommand::ToggleOverlay {
+                    channel: 2,
+                    input: 2,
+                },
             )
             .unwrap();
         dispatcher
             .dispatch(
                 &mut state,
-                ProductionCommand::ToggleOverlay { channel: 3, input: 3 },
+                ProductionCommand::ToggleOverlay {
+                    channel: 3,
+                    input: 3,
+                },
             )
             .unwrap();
         let snapshot = dispatcher
             .dispatch(
                 &mut state,
-                ProductionCommand::ToggleOverlay { channel: 4, input: 4 },
+                ProductionCommand::ToggleOverlay {
+                    channel: 4,
+                    input: 4,
+                },
             )
             .unwrap();
 
@@ -425,14 +437,20 @@ mod tests {
         assert_eq!(
             dispatcher.dispatch(
                 &mut state,
-                ProductionCommand::ToggleOverlay { channel: 0, input: 1 }
+                ProductionCommand::ToggleOverlay {
+                    channel: 0,
+                    input: 1,
+                },
             ),
             Err(CommandError::InvalidOverlayChannel(0))
         );
         assert_eq!(
             dispatcher.dispatch(
                 &mut state,
-                ProductionCommand::ToggleOverlay { channel: 5, input: 1 }
+                ProductionCommand::ToggleOverlay {
+                    channel: 5,
+                    input: 1,
+                },
             ),
             Err(CommandError::InvalidOverlayChannel(5))
         );
