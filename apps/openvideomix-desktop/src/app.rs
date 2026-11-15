@@ -100,6 +100,11 @@ pub struct OpenVideoMixApp {
     pub status_notification: Option<String>,
     pub show_settings: bool,
     pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
+    pub show_safe_areas: bool,
+    pub input_search_filter: String,
+    pub input_category_filter: usize,
+    pub audio_mixer_collapsed: bool,
+    pub transition_duration_ms: u32,
     pub last_frame_time: Instant,
     pub animated_tick: f32,
     pub connected_v4l2_devices: Vec<String>,
@@ -154,6 +159,11 @@ impl OpenVideoMixApp {
             status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
             show_settings: false,
             settings_tab: 0,
+            show_safe_areas: false,
+            input_search_filter: String::new(),
+            input_category_filter: 0,
+            audio_mixer_collapsed: false,
+            transition_duration_ms: 1000,
             last_frame_time: Instant::now(),
             animated_tick: 0.0,
             connected_v4l2_devices: Vec::new(),
@@ -676,6 +686,18 @@ impl OpenVideoMixApp {
         is_program: bool,
     ) {
         let painter = ui.painter().with_clip_rect(rect);
+
+        if is_program && self.mixer.is_fade_to_black {
+            painter.rect_filled(rect, 0.0, Color32::BLACK);
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "⚫ FADE TO BLACK (FTB ACTIVO)\nProgram e son en negro",
+                egui::FontId::proportional(16.0),
+                Color32::from_rgb(255, 180, 0),
+            );
+            return;
+        }
         #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
         if is_program && self.production.is_some() {
             painter.rect_filled(rect, 0.0, Color32::BLACK);
@@ -839,36 +861,75 @@ impl OpenVideoMixApp {
             }
         }
 
-        // RENDER ACTIVE OVERLAY 1 WITH TRUE ALPHA TRANSPARENCY OVER PROGRAM
+        // RENDER ACTIVE OVERLAYS 1-4 WITH TRUE ALPHA TRANSPARENCY OVER PROGRAM
         if is_program {
-            if let Some(ov_id) = self.mixer.active_overlay_1 {
-                if let Some(texture) = self.loaded_textures.get(&ov_id) {
-                    // Draw user-loaded transparent PNG over Program!
-                    // In vMix, lower thirds typically align at the bottom-center or left
-                    let banner_w = rect.width() * 0.85;
-                    let banner_h =
-                        banner_w * (texture.size_vec2().y / texture.size_vec2().x.max(1.0));
-                    let max_h = rect.height() * 0.40;
-                    let final_h = banner_h.min(max_h);
-                    let final_w = if banner_h > max_h {
-                        banner_w * (max_h / banner_h)
-                    } else {
-                        banner_w
-                    };
+            for (idx, ov_id_opt) in self.mixer.active_overlays.iter().enumerate() {
+                if let Some(ov_id) = ov_id_opt {
+                    if let Some(texture) = self.loaded_textures.get(ov_id) {
+                        let banner_w = rect.width() * 0.85;
+                        let banner_h =
+                            banner_w * (texture.size_vec2().y / texture.size_vec2().x.max(1.0));
+                        let max_h = rect.height() * 0.40;
+                        let final_h = banner_h.min(max_h);
+                        let final_w = if banner_h > max_h {
+                            banner_w * (max_h / banner_h)
+                        } else {
+                            banner_w
+                        };
 
-                    let ov_rect = Rect::from_min_size(
-                        Pos2::new(
-                            rect.center().x - (final_w / 2.0),
-                            rect.max.y - final_h - 12.0,
-                        ),
-                        Vec2::new(final_w, final_h),
-                    );
+                        // Slight vertical offset for distinct overlay layers
+                        let y_offset = 12.0 + (idx as f32 * 6.0);
+                        let ov_rect = Rect::from_min_size(
+                            Pos2::new(
+                                rect.center().x - (final_w / 2.0),
+                                rect.max.y - final_h - y_offset,
+                            ),
+                            Vec2::new(final_w, final_h),
+                        );
 
-                    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-                    // egui respects RGBA alpha transparency automatically
-                    painter.image(texture.id(), ov_rect, uv, Color32::WHITE);
+                        let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                        painter.image(texture.id(), ov_rect, uv, Color32::WHITE);
+                    }
                 }
             }
+        }
+
+        // SAFE AREAS (90% Action Safe / 80% Title Safe + Center Crosshair)
+        if self.show_safe_areas {
+            let action_margin = Vec2::new(rect.width() * 0.05, rect.height() * 0.05);
+            let action_rect = rect.shrink2(action_margin);
+            painter.rect_stroke(
+                action_rect,
+                0.0,
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(0, 220, 255, 140)),
+                StrokeKind::Middle,
+            );
+
+            let title_margin = Vec2::new(rect.width() * 0.10, rect.height() * 0.10);
+            let title_rect = rect.shrink2(title_margin);
+            painter.rect_stroke(
+                title_rect,
+                0.0,
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 200, 0, 140)),
+                StrokeKind::Middle,
+            );
+
+            let center = rect.center();
+            let cross_size = 8.0;
+            painter.line_segment(
+                [
+                    Pos2::new(center.x - cross_size, center.y),
+                    Pos2::new(center.x + cross_size, center.y),
+                ],
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 130)),
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(center.x, center.y - cross_size),
+                    Pos2::new(center.x, center.y + cross_size),
+                ],
+                Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 130)),
+            );
         }
     }
 }
@@ -902,8 +963,35 @@ impl eframe::App for OpenVideoMixApp {
         {
             self.apply_command(ProductionCommand::Cut);
         }
+        if !ctx.wants_keyboard_input()
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::M))
+        {
+            self.apply_command(ProductionCommand::SetTransition {
+                transition: openvideomix_core::TransitionType::Fade,
+                duration_ms: self.transition_duration_ms,
+            });
+            self.apply_command(ProductionCommand::Cut);
+        }
+        if !ctx.wants_keyboard_input()
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::W))
+        {
+            self.apply_command(ProductionCommand::SetTransition {
+                transition: openvideomix_core::TransitionType::Wipe,
+                duration_ms: self.transition_duration_ms,
+            });
+            self.apply_command(ProductionCommand::Cut);
+        }
+        if ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, Key::F12)) {
+            self.apply_command(ProductionCommand::ToggleFadeToBlack);
+        }
         if ctx.input(|i| i.key_pressed(Key::F1)) {
             self.show_settings = !self.show_settings;
+        }
+        if ctx.input(|i| i.key_pressed(Key::F2)) {
+            self.show_safe_areas = !self.show_safe_areas;
+        }
+        if ctx.input(|i| i.key_pressed(Key::F3)) {
+            self.audio_mixer_collapsed = !self.audio_mixer_collapsed;
         }
         for (idx, key) in [
             Key::Num1,
@@ -1052,8 +1140,10 @@ impl eframe::App for OpenVideoMixApp {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new("Atallos: Espazo/Enter (CUT) | 1-9 (PVW) | F1 (Axustes)")
-                            .weak(),
+                        RichText::new(
+                            "Atallos: Espazo/Enter (CUT) | M (MIX) | W (WIPE) | F12 (FTB) | 1-9 (PVW) | F1 (Axustes) | F2 (Safe) | F3 (Audio)",
+                        )
+                        .weak(),
                     );
                 });
             });
@@ -1098,34 +1188,124 @@ impl eframe::App for OpenVideoMixApp {
                         Stroke::new(2.5_f32, Color32::from_rgb(40, 200, 70)),
                         StrokeKind::Inside,
                     );
+                    // Color-independent PVW badge
+                    let badge_rect = Rect::from_min_size(rect.min + Vec2::new(8.0, 8.0), Vec2::new(48.0, 20.0));
+                    ui.painter().rect_filled(badge_rect, 3.0, Color32::from_rgb(30, 160, 60));
+                    ui.painter().text(
+                        badge_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "PVW",
+                        egui::FontId::proportional(12.0),
+                        Color32::WHITE,
+                    );
                 });
 
-                // Primary transition controls
+                // Primary transition controls (vMix style without T-bar)
                 ui.vertical(|ui| {
-                    ui.set_width(130.0);
-                    ui.add_space(8.0);
+                    ui.set_width(140.0);
+                    ui.add_space(4.0);
 
                     let cut_response = ui.add_sized(
-                        [120.0, 38.0],
+                        [130.0, 34.0],
                         egui::Button::new(
                             RichText::new("CUT")
                                 .strong()
                                 .size(15.0)
                                 .color(Color32::WHITE),
                         ),
-                    );
+                    ).on_hover_text("Conmutación inmediata entre Preview e Program (Atallo: Espazo ou Enter)");
                     if cut_response.clicked() {
                         self.apply_command(ProductionCommand::Cut);
                     }
 
-                    ui.add_space(4.0);
+                    ui.add_space(3.0);
 
-                    ui.add_enabled(false, egui::Button::new("MIX (pendente)"))
-                        .on_disabled_hover_text(
-                            "FADE require composición interpolada de vídeo; non é un CUT.",
-                        );
-                    ui.add_enabled(false, egui::Button::new("WIPE (pendente)"))
-                        .on_disabled_hover_text("WIPE require máscaras no compositor GPU.");
+                    let mix_response = ui.add_sized(
+                        [130.0, 28.0],
+                        egui::Button::new(
+                            RichText::new("MIX")
+                                .strong()
+                                .size(13.0)
+                                .color(Color32::from_rgb(180, 220, 255)),
+                        ),
+                    ).on_hover_text("Transición Fade interpolada (Atallo: M)");
+                    if mix_response.clicked() {
+                        self.apply_command(ProductionCommand::SetTransition {
+                            transition: openvideomix_core::TransitionType::Fade,
+                            duration_ms: self.transition_duration_ms,
+                        });
+                        self.apply_command(ProductionCommand::Cut);
+                    }
+
+                    ui.add_space(2.0);
+
+                    let wipe_response = ui.add_sized(
+                        [130.0, 28.0],
+                        egui::Button::new(
+                            RichText::new("WIPE")
+                                .strong()
+                                .size(13.0)
+                                .color(Color32::from_rgb(200, 200, 255)),
+                        ),
+                    ).on_hover_text("Transición Wipe direccional (Atallo: W)");
+                    if wipe_response.clicked() {
+                        self.apply_command(ProductionCommand::SetTransition {
+                            transition: openvideomix_core::TransitionType::Wipe,
+                            duration_ms: self.transition_duration_ms,
+                        });
+                        self.apply_command(ProductionCommand::Cut);
+                    }
+
+                    ui.add_space(3.0);
+
+                    let ftb_text = if self.mixer.is_fade_to_black {
+                        "⚫ FTB ACTIVO"
+                    } else {
+                        "FTB"
+                    };
+                    let ftb_color = if self.mixer.is_fade_to_black {
+                        Color32::from_rgb(240, 140, 0)
+                    } else {
+                        Color32::from_rgb(80, 30, 30)
+                    };
+                    let ftb_response = ui.add_sized(
+                        [130.0, 26.0],
+                        egui::Button::new(
+                            RichText::new(ftb_text)
+                                .strong()
+                                .size(12.0)
+                                .color(Color32::WHITE),
+                        ).fill(ftb_color),
+                    ).on_hover_text("Fade To Black: fundido a negro e silencio master (Atallo: F12)");
+                    if ftb_response.clicked() {
+                        self.apply_command(ProductionCommand::ToggleFadeToBlack);
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
+
+                    ui.label(RichText::new("Duración:").small().weak());
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(self.transition_duration_ms == 500, "0.5s").clicked() {
+                            self.transition_duration_ms = 500;
+                        }
+                        if ui.selectable_label(self.transition_duration_ms == 1000, "1.0s").clicked() {
+                            self.transition_duration_ms = 1000;
+                        }
+                        if ui.selectable_label(self.transition_duration_ms == 2000, "2.0s").clicked() {
+                            self.transition_duration_ms = 2000;
+                        }
+                    });
+
+                    ui.add_space(2.0);
+                    let safe_label = if self.show_safe_areas {
+                        "🛡️ Ocultar Safe"
+                    } else {
+                        "🛡️ Amosar Safe"
+                    };
+                    if ui.button(RichText::new(safe_label).small()).on_hover_text("Áreas seguras: 90% Acción, 80% Título e cruz central (Atallo: F2)").clicked() {
+                        self.show_safe_areas = !self.show_safe_areas;
+                    }
                 });
 
                 // PROGRAM (PGM)
@@ -1158,6 +1338,21 @@ impl eframe::App for OpenVideoMixApp {
                         4.0,
                         Stroke::new(2.5_f32, Color32::from_rgb(230, 40, 40)),
                         StrokeKind::Inside,
+                    );
+                    // Color-independent PGM / FTB badge
+                    let badge_rect = Rect::from_min_size(rect.min + Vec2::new(8.0, 8.0), Vec2::new(60.0, 20.0));
+                    let (badge_color, badge_text) = if self.mixer.is_fade_to_black {
+                        (Color32::from_rgb(220, 120, 0), "FTB")
+                    } else {
+                        (Color32::from_rgb(220, 30, 30), "PGM")
+                    };
+                    ui.painter().rect_filled(badge_rect, 3.0, badge_color);
+                    ui.painter().text(
+                        badge_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        badge_text,
+                        egui::FontId::proportional(12.0),
+                        Color32::WHITE,
                     );
                 });
             });
@@ -1230,20 +1425,42 @@ impl eframe::App for OpenVideoMixApp {
 
             // LOWER SECTION: INPUTS RACK + AUDIO MIXER
             ui.horizontal(|ui| {
-                // INPUTS SWITCHER (Left 75% width)
+                let total_available = ui.available_width();
+                let inputs_width = if self.audio_mixer_collapsed {
+                    total_available - 36.0
+                } else {
+                    (total_available - 16.0) * 0.70
+                };
+
+                // INPUTS SWITCHER RACK
                 ui.vertical(|ui| {
-                    ui.set_width(ui.available_width() * 0.75);
+                    ui.set_width(inputs_width);
+
+                    // Inputs Toolbar
                     ui.horizontal(|ui| {
                         ui.heading("Entradas de Vídeo");
                         ui.label(format!("({} activas)", self.mixer.inputs.len()));
 
-                        // Open native file dialog for real PNG/images
+                        ui.separator();
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.input_search_filter)
+                                .desired_width(110.0)
+                                .hint_text("🔍 Filtrar..."),
+                        );
+
+                        ui.selectable_value(&mut self.input_category_filter, 0, "Todas");
+                        ui.selectable_value(&mut self.input_category_filter, 1, "Cámaras");
+                        ui.selectable_value(&mut self.input_category_filter, 2, "Imaxes");
+                        ui.selectable_value(&mut self.input_category_filter, 3, "Sintéticos");
+
+                        ui.separator();
                         if ui
                             .button(
-                                RichText::new("🖼️ ENGADIR Rótulo PNG (Explorador)")
+                                RichText::new("🖼️ Engadir Rótulo")
                                     .strong()
                                     .color(Color32::from_rgb(0, 210, 255)),
                             )
+                            .on_hover_text("Cargar imaxe con transparencia PNG/WebP/JPG")
                             .clicked()
                         {
                             if let Some(path) = rfd::FileDialog::new()
@@ -1258,22 +1475,47 @@ impl eframe::App for OpenVideoMixApp {
                             }
                         }
 
-                        if ui.button("Engadir webcam USB (proba)").clicked() {
+                        if ui.button("📷 Cámara USB").clicked() {
                             self.add_default_usb_camera(false);
                         }
-                        if ui.button("Engadir sinal sintético GStreamer").clicked() {
+                        if ui.button("⚙ Sintético").clicked() {
                             self.add_default_usb_camera(true);
                         }
                     });
 
+                    // Inputs Cards Scroll Area
+                    let filter_text = self.input_search_filter.trim().to_lowercase();
                     egui::ScrollArea::horizontal().show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let mut action_cut_to = None;
                             let mut action_pvw_to = None;
                             let mut action_remove = None;
-                            let mut action_toggle_ov1 = None;
+                            let mut action_reorder = None;
+                            let mut action_toggle_ov = None;
 
-                            for input in &self.mixer.inputs {
+                            for (real_idx, input) in self.mixer.inputs.iter().enumerate() {
+                                // Category filter
+                                let cat_match = match self.input_category_filter {
+                                    1 => matches!(&input.kind, InputKind::Camera { .. }),
+                                    2 => matches!(
+                                        &input.kind,
+                                        InputKind::ImageFile { .. } | InputKind::MediaFile { .. }
+                                    ),
+                                    3 => matches!(
+                                        &input.kind,
+                                        InputKind::ColorBars | InputKind::ScreenCapture { .. }
+                                    ),
+                                    _ => true,
+                                };
+                                if !cat_match {
+                                    continue;
+                                }
+                                if !filter_text.is_empty()
+                                    && !input.name.to_lowercase().contains(&filter_text)
+                                {
+                                    continue;
+                                }
+
                                 let border_color = if input.is_tally_program {
                                     Color32::from_rgb(230, 40, 40)
                                 } else if input.is_tally_preview {
@@ -1283,10 +1525,25 @@ impl eframe::App for OpenVideoMixApp {
                                 };
 
                                 ui.group(|ui| {
-                                    ui.set_width(176.0);
+                                    ui.set_width(184.0);
                                     ui.vertical(|ui| {
-                                        // Header with Title and Close Button [✕]
+                                        // Header with Reorder [◀][▶], Title and Close [✕]
                                         ui.horizontal(|ui| {
+                                            if ui
+                                                .button(RichText::new("◀").small())
+                                                .on_hover_text("Mover entrada á esquerda no rack")
+                                                .clicked()
+                                            {
+                                                action_reorder =
+                                                    Some((input.id, real_idx.saturating_sub(1)));
+                                            }
+                                            if ui
+                                                .button(RichText::new("▶").small())
+                                                .on_hover_text("Mover entrada á dereita no rack")
+                                                .clicked()
+                                            {
+                                                action_reorder = Some((input.id, real_idx + 1));
+                                            }
                                             ui.label(
                                                 RichText::new(format!(
                                                     "#{}: {}",
@@ -1298,7 +1555,6 @@ impl eframe::App for OpenVideoMixApp {
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::Center),
                                                 |ui| {
-                                                    // Close button
                                                     if ui
                                                         .add(egui::Button::new(
                                                             RichText::new("✕")
@@ -1315,9 +1571,9 @@ impl eframe::App for OpenVideoMixApp {
                                             );
                                         });
 
-                                        // Thumbnail / Preview Box
+                                        // Thumbnail Box
                                         let (rect, response) = ui.allocate_exact_size(
-                                            Vec2::new(168.0, 95.0),
+                                            Vec2::new(176.0, 99.0),
                                             Sense::click(),
                                         );
                                         ui.painter().rect_filled(
@@ -1338,16 +1594,97 @@ impl eframe::App for OpenVideoMixApp {
                                             StrokeKind::Inside,
                                         );
 
+                                        // Color-independent badges on thumbnail
+                                        if input.is_tally_program {
+                                            let badge_rect = Rect::from_min_size(
+                                                rect.min + Vec2::new(4.0, 4.0),
+                                                Vec2::new(42.0, 18.0),
+                                            );
+                                            ui.painter().rect_filled(
+                                                badge_rect,
+                                                2.0,
+                                                Color32::from_rgb(220, 30, 30),
+                                            );
+                                            ui.painter().text(
+                                                badge_rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                "PGM",
+                                                egui::FontId::proportional(11.0),
+                                                Color32::WHITE,
+                                            );
+                                        } else if input.is_tally_preview {
+                                            let badge_rect = Rect::from_min_size(
+                                                rect.min + Vec2::new(4.0, 4.0),
+                                                Vec2::new(42.0, 18.0),
+                                            );
+                                            ui.painter().rect_filled(
+                                                badge_rect,
+                                                2.0,
+                                                Color32::from_rgb(30, 160, 60),
+                                            );
+                                            ui.painter().text(
+                                                badge_rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                "PVW",
+                                                egui::FontId::proportional(11.0),
+                                                Color32::WHITE,
+                                            );
+                                        }
+
+                                        // Overlay badges on thumbnail (top-right)
+                                        let mut ov_x_offset = rect.max.x - 4.0;
+                                        for ch in (1..=4).rev() {
+                                            if self.mixer.active_overlays[ch - 1] == Some(input.id) {
+                                                ov_x_offset -= 34.0;
+                                                let badge_rect = Rect::from_min_size(
+                                                    Pos2::new(ov_x_offset, rect.min.y + 4.0),
+                                                    Vec2::new(32.0, 18.0),
+                                                );
+                                                ui.painter().rect_filled(
+                                                    badge_rect,
+                                                    2.0,
+                                                    Color32::from_rgb(0, 140, 200),
+                                                );
+                                                ui.painter().text(
+                                                    badge_rect.center(),
+                                                    egui::Align2::CENTER_CENTER,
+                                                    format!("OV{ch}"),
+                                                    egui::FontId::proportional(10.0),
+                                                    Color32::WHITE,
+                                                );
+                                                ov_x_offset -= 2.0;
+                                            }
+                                        }
+
+                                        if !input.is_online {
+                                            let off_rect = Rect::from_min_size(
+                                                Pos2::new(rect.min.x + 4.0, rect.max.y - 22.0),
+                                                Vec2::new(56.0, 16.0),
+                                            );
+                                            ui.painter().rect_filled(
+                                                off_rect,
+                                                2.0,
+                                                Color32::from_rgb(80, 70, 20),
+                                            );
+                                            ui.painter().text(
+                                                off_rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                "OFFLINE",
+                                                egui::FontId::proportional(10.0),
+                                                Color32::from_rgb(255, 200, 50),
+                                            );
+                                        }
+
                                         if response.clicked() {
                                             action_pvw_to = Some(input.id);
                                         }
 
                                         // Audio Peak Bar Underneath
                                         let bar_rect = Rect::from_min_size(
-                                            Pos2::new(rect.min.x + 4.0, rect.max.y - 7.0),
+                                            Pos2::new(rect.min.x + 4.0, rect.max.y - 6.0),
                                             Vec2::new(
                                                 (rect.width() - 8.0) * input.audio_meter_peak,
-                                                4.0,
+                                                3.0,
                                             ),
                                         );
                                         let meter_color = if input.audio_meter_peak > 0.85 {
@@ -1359,7 +1696,7 @@ impl eframe::App for OpenVideoMixApp {
                                         };
                                         ui.painter().rect_filled(bar_rect, 1.0, meter_color);
 
-                                        // Controls: PVW, PGM, and Overlay 1 [OV1]
+                                        // Controls: PVW, PGM, and Overlays 1-4
                                         ui.horizontal(|ui| {
                                             if ui.button(RichText::new("PVW").small()).clicked() {
                                                 action_pvw_to = Some(input.id);
@@ -1375,19 +1712,36 @@ impl eframe::App for OpenVideoMixApp {
                                                 action_cut_to = Some(input.id);
                                             }
 
-                                            // Overlay 1 button (vMix style)
-                                            let ov1_color = if input.is_overlay_active {
-                                                Color32::from_rgb(0, 190, 255)
-                                            } else {
-                                                Color32::GRAY
-                                            };
-                                            if ui
-                                                .button(
-                                                    RichText::new("OV1").small().color(ov1_color),
+                                            // 4 Overlay toggle buttons
+                                            for channel in 1..=4 {
+                                                let is_active = self.mixer.active_overlays
+                                                    [channel - 1]
+                                                    == Some(input.id);
+                                                let ov_btn = egui::Button::new(
+                                                    RichText::new(format!("{channel}"))
+                                                        .small()
+                                                        .strong()
+                                                        .color(if is_active {
+                                                            Color32::WHITE
+                                                        } else {
+                                                            Color32::from_rgb(140, 170, 200)
+                                                        }),
                                                 )
-                                                .clicked()
-                                            {
-                                                action_toggle_ov1 = Some(input.id);
+                                                .fill(if is_active {
+                                                    Color32::from_rgb(0, 120, 190)
+                                                } else {
+                                                    Color32::from_rgb(32, 36, 44)
+                                                });
+                                                if ui
+                                                    .add(ov_btn)
+                                                    .on_hover_text(format!(
+                                                        "Conmutar Overlay {channel} para esta entrada"
+                                                    ))
+                                                    .clicked()
+                                                {
+                                                    action_toggle_ov =
+                                                        Some((channel as u8, input.id));
+                                                }
                                             }
                                         });
                                     });
@@ -1407,8 +1761,17 @@ impl eframe::App for OpenVideoMixApp {
                                 self.loaded_textures.remove(&id);
                                 self.mixer.remove_input(id);
                             }
-                            if let Some(id) = action_toggle_ov1 {
-                                self.apply_command(ProductionCommand::ToggleOverlay1 { input: id });
+                            if let Some((id, target)) = action_reorder {
+                                self.apply_command(ProductionCommand::ReorderInput {
+                                    input: id,
+                                    target_index: target,
+                                });
+                            }
+                            if let Some((ch, id)) = action_toggle_ov {
+                                self.apply_command(ProductionCommand::ToggleOverlay {
+                                    channel: ch,
+                                    input: id,
+                                });
                             }
                         });
                     });
@@ -1416,57 +1779,210 @@ impl eframe::App for OpenVideoMixApp {
 
                 ui.separator();
 
-                // AUDIO MIXER (Right 25% width)
-                ui.vertical(|ui| {
-                    ui.heading("Audio · sen captura");
-                    ui.horizontal(|ui| {
-                        // Master Bus with Peak Meter
-                        ui.vertical(|ui| {
-                            ui.label(RichText::new("MASTER").strong());
-                            let mut vol = self.mixer.master_bus.volume;
-                            if ui
-                                .add(
-                                    egui::Slider::new(&mut vol, 0.0..=1.0)
-                                        .vertical()
-                                        .text("Vol"),
-                                )
-                                .changed()
-                            {
-                                self.apply_command(ProductionCommand::SetMasterVolume {
-                                    volume: vol,
-                                });
-                            }
-                        });
-
-                        ui.add_space(6.0);
-
-                        // Bus A
-                        ui.vertical(|ui| {
-                            ui.label("BUS A");
-                            let mut vol = self.mixer.bus_a.volume;
-                            if ui
-                                .add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical())
-                                .changed()
-                            {
-                                self.mixer.bus_a.volume = vol;
-                            }
-                        });
-
-                        ui.add_space(6.0);
-
-                        // Headphones
-                        ui.vertical(|ui| {
-                            ui.label("AURIC.");
-                            let mut vol = self.mixer.headphones_bus.volume;
-                            if ui
-                                .add(egui::Slider::new(&mut vol, 0.0..=1.0).vertical())
-                                .changed()
-                            {
-                                self.mixer.headphones_bus.volume = vol;
-                            }
-                        });
+                // DOCKABLE AUDIO MIXER (Right section)
+                if self.audio_mixer_collapsed {
+                    ui.vertical(|ui| {
+                        if ui
+                            .button(RichText::new("🔊").size(18.0))
+                            .on_hover_text("Despregar mesturador de son (Atallo: F3)")
+                            .clicked()
+                        {
+                            self.audio_mixer_collapsed = false;
+                        }
                     });
-                });
+                } else {
+                    ui.vertical(|ui| {
+                        let mut action_set_vol = None;
+                        let mut action_set_mute = None;
+                        let mut action_set_afv = None;
+
+                        ui.horizontal(|ui| {
+                            ui.heading("Mesturador de Son");
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .button(RichText::new("✕").small())
+                                        .on_hover_text("Repregar panel de audio (Atallo: F3)")
+                                        .clicked()
+                                    {
+                                        self.audio_mixer_collapsed = true;
+                                    }
+                                },
+                            );
+                        });
+
+                        egui::ScrollArea::horizontal().show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                // Channel strips for inputs
+                                for input in &self.mixer.inputs {
+                                    ui.group(|ui| {
+                                        ui.set_width(54.0);
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new(format!("#{}", input.id))
+                                                    .strong()
+                                                    .small(),
+                                            );
+                                            let mut vol = input.volume;
+                                            if ui
+                                                .add(
+                                                    egui::Slider::new(&mut vol, 0.0..=1.0)
+                                                        .vertical()
+                                                        .show_value(false),
+                                                )
+                                                .on_hover_text(format!(
+                                                    "Volume: {:.0}%",
+                                                    vol * 100.0
+                                                ))
+                                                .changed()
+                                            {
+                                                action_set_vol = Some((input.id, vol));
+                                            }
+                                            let mute_label =
+                                                if input.is_muted { "MUTE" } else { "M" };
+                                            let mute_color = if input.is_muted {
+                                                Color32::from_rgb(255, 80, 80)
+                                            } else {
+                                                Color32::GRAY
+                                            };
+                                            if ui
+                                                .button(
+                                                    RichText::new(mute_label)
+                                                        .small()
+                                                        .color(mute_color),
+                                                )
+                                                .clicked()
+                                            {
+                                                action_set_mute =
+                                                    Some((input.id, !input.is_muted));
+                                            }
+                                            let afv_color = if input.afv {
+                                                Color32::from_rgb(0, 220, 180)
+                                            } else {
+                                                Color32::GRAY
+                                            };
+                                            if ui
+                                                .button(
+                                                    RichText::new("AFV").small().color(afv_color),
+                                                )
+                                                .on_hover_text("Audio-Follows-Video")
+                                                .clicked()
+                                            {
+                                                action_set_afv = Some((input.id, !input.afv));
+                                            }
+                                        });
+                                    });
+                                }
+
+                                ui.separator();
+
+                                // Master Bus
+                                ui.group(|ui| {
+                                    ui.set_width(62.0);
+                                    ui.vertical(|ui| {
+                                        ui.label(RichText::new("MASTER").strong().small());
+                                        let mut vol = self.mixer.master_bus.volume;
+                                        if ui
+                                            .add(
+                                                egui::Slider::new(&mut vol, 0.0..=1.0)
+                                                    .vertical()
+                                                    .show_value(false),
+                                            )
+                                            .on_hover_text(format!(
+                                                "Master: {:.0}%",
+                                                vol * 100.0
+                                            ))
+                                            .changed()
+                                        {
+                                            self.apply_command(
+                                                ProductionCommand::SetMasterVolume { volume: vol },
+                                            );
+                                        }
+                                        let mute_label =
+                                            if self.mixer.master_bus.muted {
+                                                "MUTE"
+                                            } else {
+                                                "M"
+                                            };
+                                        let mute_color = if self.mixer.master_bus.muted {
+                                            Color32::from_rgb(255, 80, 80)
+                                        } else {
+                                            Color32::GRAY
+                                        };
+                                        if ui
+                                            .button(
+                                                RichText::new(mute_label).small().color(mute_color),
+                                            )
+                                            .clicked()
+                                        {
+                                            self.apply_command(ProductionCommand::SetMasterMute {
+                                                muted: !self.mixer.master_bus.muted,
+                                            });
+                                        }
+                                    });
+                                });
+
+                                // Bus A
+                                ui.group(|ui| {
+                                    ui.set_width(54.0);
+                                    ui.vertical(|ui| {
+                                        ui.label(RichText::new("BUS A").small());
+                                        let mut vol = self.mixer.bus_a.volume;
+                                        if ui
+                                            .add(
+                                                egui::Slider::new(&mut vol, 0.0..=1.0)
+                                                    .vertical()
+                                                    .show_value(false),
+                                            )
+                                            .changed()
+                                        {
+                                            self.mixer.bus_a.volume = vol;
+                                        }
+                                    });
+                                });
+
+                                // Headphones
+                                ui.group(|ui| {
+                                    ui.set_width(54.0);
+                                    ui.vertical(|ui| {
+                                        ui.label(RichText::new("AURIC.").small());
+                                        let mut vol = self.mixer.headphones_bus.volume;
+                                        if ui
+                                            .add(
+                                                egui::Slider::new(&mut vol, 0.0..=1.0)
+                                                    .vertical()
+                                                    .show_value(false),
+                                            )
+                                            .changed()
+                                        {
+                                            self.mixer.headphones_bus.volume = vol;
+                                        }
+                                    });
+                                });
+                            });
+                        });
+
+                        if let Some((id, vol)) = action_set_vol {
+                            self.apply_command(ProductionCommand::SetInputVolume {
+                                input: id,
+                                volume: vol,
+                            });
+                        }
+                        if let Some((id, muted)) = action_set_mute {
+                            self.apply_command(ProductionCommand::SetInputMute {
+                                input: id,
+                                muted,
+                            });
+                        }
+                        if let Some((id, enabled)) = action_set_afv {
+                            self.apply_command(ProductionCommand::SetInputAfv {
+                                input: id,
+                                enabled,
+                            });
+                        }
+                    });
+                }
             });
         });
 
@@ -1728,5 +2244,55 @@ mod gui_command_tests {
         }
         assert_eq!(dispatcher.revision(), 2);
         assert_eq!(mixer.preview_input, destination);
+    }
+
+    #[test]
+    fn test_input_reorder_and_tally_integrity() {
+        let mut mixer = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+        let initial_pvw = mixer.preview_input;
+        let initial_pgm = mixer.program_input;
+
+        // Reorder input 5 (BARRAS) to index 0
+        assert_eq!(mixer.inputs[4].id, 5);
+        dispatcher
+            .dispatch(
+                &mut mixer,
+                ProductionCommand::ReorderInput {
+                    input: 5,
+                    target_index: 0,
+                },
+            )
+            .unwrap();
+
+        assert_eq!(mixer.inputs[0].id, 5);
+        // Preview and Program inputs remain logically intact
+        assert_eq!(mixer.preview_input, initial_pvw);
+        assert_eq!(mixer.program_input, initial_pgm);
+    }
+
+    #[test]
+    fn test_fade_to_black_and_overlay_commands() {
+        let mut mixer = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+
+        assert!(!mixer.is_fade_to_black);
+        dispatcher
+            .dispatch(&mut mixer, ProductionCommand::ToggleFadeToBlack)
+            .unwrap();
+        assert!(mixer.is_fade_to_black);
+
+        // Overlay 2 toggle
+        assert_eq!(mixer.active_overlays[1], None);
+        dispatcher
+            .dispatch(
+                &mut mixer,
+                ProductionCommand::ToggleOverlay {
+                    channel: 2,
+                    input: 3,
+                },
+            )
+            .unwrap();
+        assert_eq!(mixer.active_overlays[1], Some(3));
     }
 }

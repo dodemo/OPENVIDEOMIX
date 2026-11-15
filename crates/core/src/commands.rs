@@ -61,6 +61,18 @@ pub enum ProductionCommand {
     SetMasterMute {
         muted: bool,
     },
+    SetTransition {
+        transition: crate::TransitionType,
+        duration_ms: u32,
+    },
+    ToggleFadeToBlack,
+    SetFadeToBlack {
+        enabled: bool,
+    },
+    ReorderInput {
+        input: InputId,
+        target_index: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -89,6 +101,8 @@ pub struct ProductionSnapshot {
     pub overlays: [Option<InputId>; 4],
     pub master_volume: f32,
     pub master_muted: bool,
+    #[serde(default)]
+    pub is_fade_to_black: bool,
 }
 
 impl ProductionSnapshot {
@@ -101,6 +115,7 @@ impl ProductionSnapshot {
             overlays: mixer.active_overlays,
             master_volume: mixer.master_bus.volume,
             master_muted: mixer.master_bus.muted,
+            is_fade_to_black: mixer.is_fade_to_black,
         }
     }
 }
@@ -234,6 +249,26 @@ impl CommandDispatcher {
             }
             ProductionCommand::SetMasterMute { muted } => {
                 state.master_bus.muted = muted;
+            }
+            ProductionCommand::SetTransition {
+                transition,
+                duration_ms,
+            } => {
+                state.active_transition = transition;
+                state.transition_duration_ms = duration_ms.clamp(50, 10_000);
+            }
+            ProductionCommand::ToggleFadeToBlack => {
+                state.toggle_fade_to_black();
+            }
+            ProductionCommand::SetFadeToBlack { enabled } => {
+                state.is_fade_to_black = enabled;
+            }
+            ProductionCommand::ReorderInput {
+                input,
+                target_index,
+            } => {
+                require_input(state, input)?;
+                state.reorder_input(input, target_index);
             }
         }
         self.revision = self.revision.wrapping_add(1);
@@ -454,6 +489,56 @@ mod tests {
             ),
             Err(CommandError::InvalidOverlayChannel(5))
         );
+    }
+
+    #[test]
+    fn transition_and_ftb_and_reorder_commands_dispatch_correctly() {
+        let mut state = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+
+        // Transition change
+        let snapshot = dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::SetTransition {
+                    transition: crate::TransitionType::Wipe,
+                    duration_ms: 1500,
+                },
+            )
+            .unwrap();
+        assert_eq!(state.active_transition, crate::TransitionType::Wipe);
+        assert_eq!(state.transition_duration_ms, 1500);
+
+        // FTB toggle
+        assert!(!snapshot.is_fade_to_black);
+        let snapshot = dispatcher
+            .dispatch(&mut state, ProductionCommand::ToggleFadeToBlack)
+            .unwrap();
+        assert!(snapshot.is_fade_to_black);
+        assert!(state.is_fade_to_black);
+
+        // Explicit FTB set
+        let snapshot = dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::SetFadeToBlack { enabled: false },
+            )
+            .unwrap();
+        assert!(!snapshot.is_fade_to_black);
+
+        // Reorder input: move input 1 to slot 2
+        let first_id_before = state.inputs[0].id;
+        assert_eq!(first_id_before, 1);
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::ReorderInput {
+                    input: 1,
+                    target_index: 2,
+                },
+            )
+            .unwrap();
+        assert_eq!(state.inputs[2].id, 1);
     }
 }
 
