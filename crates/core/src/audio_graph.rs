@@ -257,7 +257,12 @@ impl AudioGraph {
 
         for &(id, samples) in inputs {
             self.ensure_input(id);
-            let routing = self.routings.iter().find(|r| r.input_id == id).cloned().unwrap();
+            let routing = self
+                .routings
+                .iter()
+                .find(|r| r.input_id == id)
+                .cloned()
+                .unwrap();
             let is_pgm = program_input == Some(id);
 
             let bus_gain = routing.effective_bus_gain(is_pgm, any_solo);
@@ -288,17 +293,29 @@ impl AudioGraph {
         }
 
         // Apply master bus fader and mute
-        let m_gain = if self.master_bus.is_muted { 0.0 } else { self.master_bus.master_gain };
+        let m_gain = if self.master_bus.is_muted {
+            0.0
+        } else {
+            self.master_bus.master_gain
+        };
         for sample in &mut master_sum {
             *sample = (*sample * m_gain).clamp(-1.0, 1.0);
         }
 
-        let a_gain = if self.bus_a.is_muted { 0.0 } else { self.bus_a.master_gain };
+        let a_gain = if self.bus_a.is_muted {
+            0.0
+        } else {
+            self.bus_a.master_gain
+        };
         for sample in &mut bus_a_sum {
             *sample = (*sample * a_gain).clamp(-1.0, 1.0);
         }
 
-        let b_gain = if self.bus_b.is_muted { 0.0 } else { self.bus_b.master_gain };
+        let b_gain = if self.bus_b.is_muted {
+            0.0
+        } else {
+            self.bus_b.master_gain
+        };
         for sample in &mut bus_b_sum {
             *sample = (*sample * b_gain).clamp(-1.0, 1.0);
         }
@@ -319,11 +336,17 @@ impl AudioGraph {
     }
 
     /// Account for audio samples vs video frame timestamps and record drift
-    pub fn update_drift_accounting(&mut self, video_frames_elapsed: u64, audio_samples_received: u64) {
+    pub fn update_drift_accounting(
+        &mut self,
+        video_frames_elapsed: u64,
+        audio_samples_received: u64,
+    ) {
         self.drift_stats.total_video_frames = video_frames_elapsed;
         self.drift_stats.total_audio_samples = audio_samples_received;
-        self.drift_stats.expected_audio_samples = video_frames_elapsed * (SAMPLES_PER_FRAME_50FPS as u64);
-        self.drift_stats.drift_samples = (audio_samples_received as i64) - (self.drift_stats.expected_audio_samples as i64);
+        self.drift_stats.expected_audio_samples =
+            video_frames_elapsed * (SAMPLES_PER_FRAME_50FPS as u64);
+        self.drift_stats.drift_samples =
+            (audio_samples_received as i64) - (self.drift_stats.expected_audio_samples as i64);
     }
 }
 

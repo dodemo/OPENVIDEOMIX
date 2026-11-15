@@ -9,9 +9,9 @@ pub mod media_timebase;
 pub mod output_schedule;
 pub mod video_profile;
 
+pub mod audio_graph;
 pub mod reference_compositor;
 pub mod reference_output;
-pub mod audio_graph;
 
 pub mod commands;
 pub mod midi;
