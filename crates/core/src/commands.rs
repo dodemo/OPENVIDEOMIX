@@ -13,18 +13,46 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "action", content = "args", rename_all = "snake_case")]
 pub enum ProductionCommand {
-    SelectPreview { input: InputId },
-    SelectProgram { input: InputId },
+    SelectPreview {
+        input: InputId,
+    },
+    SelectProgram {
+        input: InputId,
+    },
     Cut,
-    StartTestRecording { path: String },
+    StartTestRecording {
+        path: String,
+    },
+    StartLiveRecording {
+        path: String,
+        factory: String,
+        device: Option<String>,
+    },
     StopRecording,
-    ToggleOverlay1 { input: InputId },
-    SetOverlay1 { input: Option<InputId> },
-    SetInputVolume { input: InputId, volume: f32 },
-    SetInputMute { input: InputId, muted: bool },
-    SetInputAfv { input: InputId, enabled: bool },
-    SetMasterVolume { volume: f32 },
-    SetMasterMute { muted: bool },
+    ToggleOverlay1 {
+        input: InputId,
+    },
+    SetOverlay1 {
+        input: Option<InputId>,
+    },
+    SetInputVolume {
+        input: InputId,
+        volume: f32,
+    },
+    SetInputMute {
+        input: InputId,
+        muted: bool,
+    },
+    SetInputAfv {
+        input: InputId,
+        enabled: bool,
+    },
+    SetMasterVolume {
+        volume: f32,
+    },
+    SetMasterMute {
+        muted: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -37,6 +65,8 @@ pub enum CommandError {
     NoPreview,
     #[error("recording path must be nonempty and contain no NUL")]
     InvalidRecordingPath,
+    #[error("invalid live audio source/device")]
+    InvalidAudioSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -89,12 +119,36 @@ impl CommandDispatcher {
                 state.recording_intent = Some(crate::RecordingIntent {
                     revision: self.revision.wrapping_add(1),
                     path: Some(path),
+                    live_audio: None,
+                });
+            }
+            ProductionCommand::StartLiveRecording {
+                path,
+                factory,
+                device,
+            } => {
+                if path.trim().is_empty() || path.contains('\0') {
+                    return Err(CommandError::InvalidRecordingPath);
+                }
+                if factory.is_empty()
+                    || !factory
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    || device.as_ref().is_some_and(|d| d.contains('\0'))
+                {
+                    return Err(CommandError::InvalidAudioSource);
+                }
+                state.recording_intent = Some(crate::RecordingIntent {
+                    revision: self.revision.wrapping_add(1),
+                    path: Some(path),
+                    live_audio: Some((factory, device)),
                 });
             }
             ProductionCommand::StopRecording => {
                 state.recording_intent = Some(crate::RecordingIntent {
                     revision: self.revision.wrapping_add(1),
                     path: None,
+                    live_audio: None,
                 });
             }
             ProductionCommand::SelectPreview { input } => {
@@ -335,5 +389,57 @@ mod recording_intent_tests {
             .unwrap();
         assert!(state.recording_intent.as_ref().unwrap().path.is_none());
         assert_eq!(state.recording_intent.as_ref().unwrap().revision, 2);
+    }
+}
+
+#[cfg(test)]
+mod live_recording_tests {
+    use super::*;
+    #[test]
+    fn live_intents_remain_explicit_and_validate_before_mutation() {
+        let mut state = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+        let invalid = ProductionCommand::StartLiveRecording {
+            path: "file.webm".into(),
+            factory: "pulsesrc ! fakesink".into(),
+            device: None,
+        };
+        assert_eq!(
+            dispatcher.dispatch(&mut state, invalid),
+            Err(CommandError::InvalidAudioSource)
+        );
+        assert_eq!(dispatcher.revision(), 0);
+        assert!(state.recording_intent.is_none());
+        let command = ProductionCommand::StartLiveRecording {
+            path: "file.webm".into(),
+            factory: "pulsesrc".into(),
+            device: Some("mic-1".into()),
+        };
+        let json = serde_json::to_string(&command).unwrap();
+        let decoded: ProductionCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, command);
+        dispatcher.dispatch(&mut state, command).unwrap();
+        assert_eq!(
+            state.recording_intent.as_ref().unwrap().live_audio,
+            Some(("pulsesrc".into(), Some("mic-1".into())))
+        );
+        dispatcher
+            .dispatch(&mut state, ProductionCommand::StopRecording)
+            .unwrap();
+        assert!(state.recording_intent.as_ref().unwrap().path.is_none());
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::StartTestRecording {
+                    path: "tone.webm".into(),
+                },
+            )
+            .unwrap();
+        assert!(state
+            .recording_intent
+            .as_ref()
+            .unwrap()
+            .live_audio
+            .is_none());
     }
 }

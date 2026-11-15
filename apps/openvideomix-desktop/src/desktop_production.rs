@@ -1,6 +1,7 @@
-//! Desktop-facing service: actual Program frames and explicit test-tone recording.
-//! Capture and output run independently of GUI polling. No microphone is implied.
+//! Desktop-facing service: actual Program frames, explicit tone or live PCM.
+//! Capture and output run independently of GUI polling.
 use crate::{
+    live_audio::{AlignmentStats, AudioInput, AudioSource, AudioStatus, AudioTimeline},
     output_worker::{
         CadencePolicy, OutputIngress, OutputRouting, OutputWorker, ProgramPacket, WorkerConfig,
         WorkerError, WorkerSource, WorkerStats,
@@ -22,6 +23,8 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+
+const INPUT_LATENCY_NS: u64 = 100_000_000;
 
 #[derive(Debug, Clone, Default)]
 pub enum RecordingState {
@@ -48,9 +51,13 @@ pub struct StudioView {
     pub stats: WorkerStats,
     pub recording: RecordingState,
     pub recording_queue_drops: u64,
+    pub audio_label: String,
+    pub audio_status: Option<AudioStatus>,
+    pub audio_alignment: AlignmentStats,
+    pub audio_muted: bool,
 }
 enum RecordControl {
-    Start(PathBuf),
+    Start(PathBuf, Option<AudioSource>),
     Stop,
 }
 pub struct DesktopProduction {
@@ -83,7 +90,7 @@ impl DesktopProduction {
             channel_capacity: 16,
             max_hold: Duration::from_millis(500),
             start_delay: Duration::from_millis(100),
-            input_latency: Duration::from_millis(100),
+            input_latency: Duration::from_nanos(INPUT_LATENCY_NS),
         })
         .map_err(|e| format!("Output worker: {e:?}"))?;
         let ingress = worker.ingress().ok_or("Output worker has no ingress")?;
@@ -131,6 +138,8 @@ impl DesktopProduction {
             .spawn(move || {
                 let mut recorder: Option<ProgramRecorder> = None;
                 let mut origin = None;
+                let mut audio: Option<AudioInput> = None;
+                let mut alignment: Option<AudioTimeline> = None;
                 let mut submitted = 0_u64;
                 let mut sample_index = 0_u64;
                 let mut path = PathBuf::new();
@@ -140,7 +149,7 @@ impl DesktopProduction {
                             break;
                         };
                         match command {
-                            RecordControl::Start(requested) => {
+                            RecordControl::Start(requested, source) => {
                                 if recorder.is_some() {
                                     continue;
                                 }
@@ -150,7 +159,39 @@ impl DesktopProduction {
                                         // publishing a fresh recording origin.
                                         while recording_frames.try_recv().is_ok() {}
                                         recording_active.store(true, Ordering::Relaxed);
-                                        worker_view.lock().unwrap_or_else(|p| p.into_inner()).recording_queue_drops = 0;
+                                        worker_view
+                                            .lock()
+                                            .unwrap_or_else(|p| p.into_inner())
+                                            .recording_queue_drops = 0;
+                                        audio = match source
+                                            .as_ref()
+                                            .map(|source| AudioInput::start(source.clone()))
+                                            .transpose()
+                                        {
+                                            Ok(input) => input,
+                                            Err(error) => {
+                                                recording_active.store(false, Ordering::Relaxed);
+                                                worker_view
+                                                    .lock()
+                                                    .unwrap_or_else(|p| p.into_inner())
+                                                    .recording = RecordingState::Error(error);
+                                                continue;
+                                            }
+                                        };
+                                        {
+                                            let mut view = worker_view
+                                                .lock()
+                                                .unwrap_or_else(|p| p.into_inner());
+                                            view.audio_label = source
+                                                .as_ref()
+                                                .map(AudioSource::label)
+                                                .unwrap_or_else(|| {
+                                                    "Generated Rust 1 kHz test tone".into()
+                                                });
+                                            view.audio_status = None;
+                                            view.audio_alignment = AlignmentStats::default();
+                                        }
+                                        alignment = None;
                                         recorder = Some(session);
                                         origin = None;
                                         submitted = 0;
@@ -170,6 +211,13 @@ impl DesktopProduction {
                                 }
                             }
                             RecordControl::Stop => {
+                                if let Some(mut input) = audio.take() {
+                                    input.stop();
+                                    worker_view
+                                        .lock()
+                                        .unwrap_or_else(|p| p.into_inner())
+                                        .audio_status = Some(input.status());
+                                }
                                 recording_active.store(false, Ordering::Relaxed);
                                 if let Some(session) = recorder.take() {
                                     let result = session.finish(Duration::from_secs(10));
@@ -189,82 +237,84 @@ impl DesktopProduction {
                         Err(mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     };
-                    match packet.1 {
-                        Ok(frame) => {
-                            if let Some(session) = recorder.as_mut() {
-                                let first = *origin.get_or_insert(packet.0);
-                                let index = packet.0 - first;
-                                let volume = *worker_gain.lock().unwrap_or_else(|p| p.into_inner());
-                                let result = (|| {
-                                    let count = session.required_audio_samples_for_frame(index)?;
-                                    if count > u64::from(DEFAULT_AUDIO_SAMPLE_RATE) {
-                                        return Err(
-                                            "Audio interval exceeds one-second transaction".into(),
-                                        );
-                                    }
-                                    let mut pcm = Vec::with_capacity(count as usize * 2);
-                                    for _ in 0..count {
-                                        let value =
-                                            (sample_index as f64 * std::f64::consts::TAU * 1000.0
-                                                / f64::from(DEFAULT_AUDIO_SAMPLE_RATE))
-                                            .sin()
-                                                as f32
-                                                * 0.5
-                                                * volume;
-                                        pcm.extend([value, value]);
-                                        sample_index += 1;
-                                    }
-                                    session.wait_for_frame_capacity(
-                                        index,
-                                        // A complex first/key frame can take longer than one
-                                        // video tick. Wait only on this bounded consumer;
-                                        // capture and Program scheduling remain independent.
-                                        Duration::from_secs(1),
-                                    )?;
-                                    session.write_frame_at(index, &frame, &pcm)
-                                })();
-                                match result {
-                                    Ok(()) => {
-                                        submitted += 1;
-                                        worker_view
-                                            .lock()
-                                            .unwrap_or_else(|p| p.into_inner())
-                                            .recording = RecordingState::Recording {
-                                            path: path.clone(),
-                                            submitted,
-                                            gaps: index + 1 - submitted,
-                                        };
-                                    }
-                                    Err(error) => {
-                                        recording_active.store(false, Ordering::Relaxed);
-                                        if let Some(session) = recorder.take() {
-                                            let _ = session.finish(Duration::from_secs(10));
-                                        }
-                                        worker_view
-                                            .lock()
-                                            .unwrap_or_else(|p| p.into_inner())
-                                            .recording = RecordingState::Error(format!(
-                                            "{error}; partial file: {}",
-                                            path.display()
-                                        ));
-                                    }
-                                }
+                    if let Some(session) = recorder.as_mut() {
+                        // Program samples are composed at tick PTS - the configured
+                        // 100 ms input latency. Audio uses that same capture T0.
+                        let first = *origin.get_or_insert(packet.0);
+                        let index = packet.0.checked_sub(first);
+                        let volume = *worker_gain.lock().unwrap_or_else(|p| p.into_inner());
+                        let result = (|| {
+                            let index = index.ok_or("Recording packet moved backwards")?;
+                            let count = session.required_audio_samples_for_frame(index)?;
+                            if count > u64::from(DEFAULT_AUDIO_SAMPLE_RATE) {
+                                return Err("Audio interval exceeds one-second transaction".into());
                             }
-                        }
-                        Err(error) => {
-                            if let (Some(first), Some(session)) = (origin, recorder.as_ref()) {
-                                let gap = session.required_audio_samples_for_frame(packet.0 - first);
-                                if gap.is_err() || gap.is_ok_and(|samples| samples > u64::from(DEFAULT_AUDIO_SAMPLE_RATE)) {
-                                    recording_active.store(false, Ordering::Relaxed);
-                                    if let Some(session) = recorder.take() {
-                                        let _ = session.finish(Duration::from_secs(10));
-                                    }
-                                    worker_view.lock().unwrap_or_else(|p| p.into_inner()).recording =
-                                        RecordingState::Error(format!(
-                                            "Program unavailable beyond bounded audio interval: {error:?}; partial file: {}",
-                                            path.display()
-                                        ));
+                            let pcm = if let Some(input) = &audio {
+                                let t0 = packet
+                                    .1
+                                    .checked_sub(INPUT_LATENCY_NS)
+                                    .ok_or("Program capture T0 underflow")?;
+                                let timeline =
+                                    alignment.get_or_insert_with(|| AudioTimeline::new(t0));
+                                let result = timeline.collect(input, count, volume);
+                                let mut view =
+                                    worker_view.lock().unwrap_or_else(|p| p.into_inner());
+                                view.audio_status = Some(input.status());
+                                view.audio_alignment = timeline.stats.clone();
+                                view.audio_muted = volume == 0.0;
+                                result?
+                            } else {
+                                let mut pcm = Vec::with_capacity(count as usize * 2);
+                                for _ in 0..count {
+                                    let value =
+                                        (sample_index as f64 * std::f64::consts::TAU * 1000.0
+                                            / f64::from(DEFAULT_AUDIO_SAMPLE_RATE))
+                                        .sin() as f32
+                                            * 0.5
+                                            * volume;
+                                    pcm.extend([value, value]);
+                                    sample_index += 1;
                                 }
+                                pcm
+                            };
+                            session.wait_for_frame_capacity(index, Duration::from_secs(1))?;
+                            session.write_slot_at(
+                                index,
+                                packet.2.as_ref().ok().map(Arc::as_ref),
+                                &pcm,
+                            )
+                        })();
+                        match result {
+                            Ok(()) => {
+                                submitted += u64::from(packet.2.is_ok());
+                                worker_view
+                                    .lock()
+                                    .unwrap_or_else(|p| p.into_inner())
+                                    .recording = RecordingState::Recording {
+                                    path: path.clone(),
+                                    submitted,
+                                    gaps: index.unwrap() + 1 - submitted,
+                                };
+                            }
+                            Err(error) => {
+                                if let Some(input) = &audio {
+                                    worker_view
+                                        .lock()
+                                        .unwrap_or_else(|p| p.into_inner())
+                                        .audio_status = Some(input.status());
+                                }
+                                audio = None;
+                                recording_active.store(false, Ordering::Relaxed);
+                                if let Some(session) = recorder.take() {
+                                    let _ = session.finish(Duration::from_secs(10));
+                                }
+                                worker_view
+                                    .lock()
+                                    .unwrap_or_else(|p| p.into_inner())
+                                    .recording = RecordingState::Error(format!(
+                                    "{error}; partial file: {}",
+                                    path.display()
+                                ));
                             }
                         }
                     }
@@ -337,6 +387,12 @@ impl DesktopProduction {
     }
 
     pub fn start_test_recording(&self, path: PathBuf) -> Result<(), String> {
+        self.start_recording(path, None)
+    }
+    pub fn start_live_recording(&self, path: PathBuf, source: AudioSource) -> Result<(), String> {
+        self.start_recording(path, Some(source))
+    }
+    fn start_recording(&self, path: PathBuf, source: Option<AudioSource>) -> Result<(), String> {
         let parent = path
             .parent()
             .ok_or("Recording path has no directory")?
@@ -352,7 +408,7 @@ impl DesktopProduction {
             return Err("Recording directory has not been approved by the operator".into());
         }
         self.commands
-            .try_send(RecordControl::Start(path))
+            .try_send(RecordControl::Start(path, source))
             .map_err(|e| format!("Recording command: {e}"))
     }
     pub fn stop_recording(&self) -> Result<(), String> {
@@ -370,7 +426,7 @@ impl Drop for DesktopProduction {
     }
 }
 
-type RecordingPacket = (u64, Result<Arc<RgbaFrame>, WorkerError>);
+type RecordingPacket = (u64, u64, Result<Arc<RgbaFrame>, WorkerError>);
 
 /// The monitor always receives the latest actual Program. A full encoder
 /// queue drops/counts only recording delivery, never monitor publication.
@@ -394,7 +450,7 @@ fn publish_program(
     }
     if recording_active
         && matches!(
-            recording.try_send((packet.tick.index, frame)),
+            recording.try_send((packet.tick.index, packet.tick.pts_ns, frame)),
             Err(mpsc::TrySendError::Full(_))
         )
     {
@@ -437,7 +493,7 @@ mod tests {
         let (index, frame) = view.latest.as_ref().unwrap();
         assert_eq!((*index, frame.pixels[0]), (59, 59));
         assert_eq!(view.recording_queue_drops, 58);
-        let (_, first) = receiver.try_recv().unwrap();
+        let (_, _, first) = receiver.try_recv().unwrap();
         assert_eq!(first.unwrap().pixels[0], 0);
         assert!(view.program_error.is_none());
     }

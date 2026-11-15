@@ -91,3 +91,13 @@ CPU VP8/Vorbis, colas acoutadas e finalización EOS. **É unha proba técnica**:
 o exemplo emprega o compositor de referencia en CPU e son xerado; o feature illado non conecta o motor de audio ou o compositor GPU. A combinación
 con `gstreamer-capture` activa a gravación de proba do estudo sintético descrito arriba.
 Consulta [o alcance e as probas](docs/PROGRAM_RECORDING_POC.md).
+
+## Primeiro tramo de audio en directo (experimental)
+
+Coas features `gstreamer-capture,gstreamer-recording`, RECORD permite seleccionar
+unha fonte de audio GStreamer e dispositivo explícitos, PCM estéreo negociado a
+48 kHz, ganancia/mute e niveis dBFS medidos. O ton Rust segue separado e é o modo
+predeterminado. O audio usa a época compartida do vídeo, con silencio/recortes
+contados e límites de fallo; os ocos de vídeo conservan o audio. Ver
+[contrato, probas sintéticas e ensaio físico pendente](docs/LIVE_PROGRAM_AUDIO.md).
+Non implica buses/AFV/PFL completos, sincronía física nin rendemento 1080p50 validado.

@@ -88,6 +88,12 @@ pub struct OpenVideoMixApp {
     show_recording_setup: bool,
     #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
     recording_path: String,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    live_audio_factory: String,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    live_audio_device: String,
+    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+    live_audio_selected: bool,
 
     #[cfg(feature = "local-control-api")]
     remote: Option<RemoteControl>,
@@ -135,6 +141,12 @@ impl OpenVideoMixApp {
             show_recording_setup: false,
             #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
             recording_path: std::env::current_dir().unwrap_or_else(|_|std::env::temp_dir()).join("recordings").join(format!("openvideomix-{}.webm",Local::now().format("%Y%m%d-%H%M%S"))).to_string_lossy().into_owned(),
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            live_audio_factory: "audiotestsrc".into(),
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            live_audio_device: String::new(),
+            #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+            live_audio_selected: false,
 
 
             #[cfg(feature = "local-control-api")]
@@ -255,7 +267,16 @@ impl OpenVideoMixApp {
             if intent.revision != self.recording_intent_seen {
                 self.recording_intent_seen = intent.revision;
                 let result = match &intent.path {
-                    Some(path) => production.start_test_recording(PathBuf::from(path)),
+                    Some(path) => match &intent.live_audio {
+                        Some((factory, device)) => production.start_live_recording(
+                            PathBuf::from(path),
+                            openvideomix_desktop::live_audio::AudioSource {
+                                factory: factory.clone(),
+                                device: device.clone(),
+                            },
+                        ),
+                        None => production.start_test_recording(PathBuf::from(path)),
+                    },
                     None => production.stop_recording(),
                 };
                 if let Err(error) = result {
@@ -917,7 +938,13 @@ impl eframe::App for OpenVideoMixApp {
             let mut start = false;
             let mut cancel = false;
             egui::Window::new("Gravar Program · proba audiovisual").default_width(650.0).default_pos(Pos2::new(300.0,150.0)).collapsible(false).resizable(true).show(ctx,|ui| {
-                ui.label("Sinal: Program composto real. Audio: ton xerado de 1 kHz, estéreo 48 kHz; sen micrófono.");
+                ui.label("Sinal: Program composto. Audio estéreo 48 kHz.");
+                ui.checkbox(&mut self.live_audio_selected, "Captura de audio en directo GStreamer (selección explícita)");
+                if self.live_audio_selected {
+                    ui.label("Fonte: audiotestsrc = sintética en directo; pulsesrc / wasapisrc / osxaudiosrc segundo plataforma. Sen conversión de taxa/canles.");
+                    ui.horizontal(|ui| {ui.label("Elemento fonte:");ui.text_edit_singleline(&mut self.live_audio_factory);});
+                    ui.horizontal(|ui| {ui.label("Dispositivo (baleiro = predeterminado):");ui.text_edit_singleline(&mut self.live_audio_device);});
+                } else { ui.label("Ton Rust xerado de 1 kHz; sen micrófono."); }
                 ui.label("Destino WebM (non se sobrescriben ficheiros):");
                 ui.add(egui::TextEdit::singleline(&mut self.recording_path).desired_width(580.0));
                 ui.horizontal(|ui| {start=ui.button("Iniciar gravación de proba").clicked();cancel=ui.button("Cancelar").clicked();});
@@ -939,9 +966,22 @@ impl eframe::App for OpenVideoMixApp {
                 })();
                 match result {
                     Ok(()) => {
-                        self.apply_command(ProductionCommand::StartTestRecording {
-                            path: self.recording_path.clone(),
-                        });
+                        let command = if self.live_audio_selected {
+                            ProductionCommand::StartLiveRecording {
+                                path: self.recording_path.clone(),
+                                factory: self.live_audio_factory.clone(),
+                                device: if self.live_audio_device.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(self.live_audio_device.clone())
+                                },
+                            }
+                        } else {
+                            ProductionCommand::StartTestRecording {
+                                path: self.recording_path.clone(),
+                            }
+                        };
+                        self.apply_command(command);
                         self.show_recording_setup = false;
                     }
                     Err(error) => self.status_notification = Some(error),
@@ -1151,6 +1191,13 @@ impl eframe::App for OpenVideoMixApp {
                         view.stats.missed_deadlines,
                         view.stats.output_queue_drops
                     ));
+                    ui.label(&view.audio_label);
+                    if let Some(audio) = &view.audio_status {
+                        ui.label(format!("Audio {:?} · {} · peak {:?} / RMS {:?} dBFS · {} perdas de cola · {} mostras de silencio · {} solapadas",
+                            audio.state, if view.audio_muted {"MUTE"} else {"ganancia Master"},
+                            view.audio_alignment.peak_dbfs, view.audio_alignment.rms_dbfs,
+                            audio.queue_drops, view.audio_alignment.silence_samples, view.audio_alignment.overlap_samples));
+                    }
                     match view.recording {
                         RecordingState::Idle => {
                             ui.label("Son para gravación: ton de proba (sen micrófono)");
@@ -1161,7 +1208,7 @@ impl eframe::App for OpenVideoMixApp {
                         RecordingState::Recording {
                             submitted, gaps, ..
                         } => {
-                            ui.label(format!("GRAVANDO TESTE: {submitted} enviados, {gaps} ocos · {} descartados na gravación", view.recording_queue_drops));
+                            ui.label(format!("GRAVANDO PROGRAM: {submitted} enviados, {gaps} ocos · {} descartados na gravación", view.recording_queue_drops));
                         }
                         RecordingState::Saved(stats) => {
                             ui.label(format!(

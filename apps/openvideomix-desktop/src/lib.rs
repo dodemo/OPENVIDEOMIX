@@ -12,3 +12,6 @@ pub mod output_worker;
 
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 pub mod desktop_production;
+
+#[cfg(feature = "gstreamer-capture")]
+pub mod live_audio;

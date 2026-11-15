@@ -153,6 +153,7 @@ impl Default for ProjectSettings {
 pub struct RecordingIntent {
     pub revision: u64,
     pub path: Option<String>,
+    pub live_audio: Option<(String, Option<String>)>,
 }
 
 /// Global production state

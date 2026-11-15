@@ -29,7 +29,7 @@ pub struct RecordingStats {
     /// Frames accepted from the caller, distinct from encoded buffers.
     pub submitted_video_frames: u64,
     pub encoded_video_frames: u64,
-    /// Output timeline slots through the last submitted frame, including gaps.
+    /// Output timeline slots through the last submitted slot, including gaps.
     pub timeline_video_frames: u64,
     pub missing_video_frames: u64,
     pub media_duration_ns: u64,
@@ -184,7 +184,7 @@ impl ProgramRecorder {
     /// including skipped video slots. No silence is generated for a gap.
     /// Frame zero establishes the recording origin; indices are then monotonic.
     pub fn required_audio_samples_for_frame(&self, frame_index: u64) -> Result<u64, String> {
-        if frame_index < self.next_frame_index || (self.frames == 0 && frame_index != 0) {
+        if frame_index < self.next_frame_index || (self.next_frame_index == 0 && frame_index != 0) {
             return Err("Frame index must begin at zero and increase without repeats".into());
         }
         let next = frame_index
@@ -245,6 +245,17 @@ impl ProgramRecorder {
         frame: &RgbaFrame,
         pcm: &[f32],
     ) -> Result<(), String> {
+        self.write_slot_at(frame_index, Some(frame), pcm)
+    }
+
+    /// Advance a Program slot even when video is unavailable. PCM stays
+    /// continuous, including trailing video gaps. No video is fabricated.
+    pub fn write_slot_at(
+        &mut self,
+        frame_index: u64,
+        frame: Option<&RgbaFrame>,
+        pcm: &[f32],
+    ) -> Result<(), String> {
         if self.failed {
             return Err("Recording has failed".into());
         }
@@ -258,10 +269,11 @@ impl ProgramRecorder {
                 "Audio interval exceeds the bounded one-second recording transaction".into(),
             );
         }
-        if frame.width != self.profile.width
-            || frame.height != self.profile.height
-            || frame.pixels.len() as u64 != self.frame_bytes
-            || pcm.len() as u64 != expected_pcm
+        if frame.is_some_and(|frame| {
+            frame.width != self.profile.width
+                || frame.height != self.profile.height
+                || frame.pixels.len() as u64 != self.frame_bytes
+        }) || pcm.len() as u64 != expected_pcm
             || pcm.iter().any(|sample| !sample.is_finite())
         {
             return Err("Program dimensions, packed RGBA, or 48 kHz stereo PCM do not match the recording profile".into());
@@ -296,18 +308,20 @@ impl ProgramRecorder {
             {
                 return Err("Recording encoder backpressure: bounded queue is full".into());
             }
-            let mut video = gst::Buffer::from_mut_slice(frame.pixels.clone());
-            let buffer = video.get_mut().ok_or("Video buffer is not writable")?;
-            buffer.set_pts(gst::ClockTime::from_nseconds(pts));
-            buffer.set_duration(gst::ClockTime::from_nseconds(next_pts - pts));
+            if let Some(frame) = frame {
+                let mut video = gst::Buffer::from_mut_slice(frame.pixels.clone());
+                let buffer = video.get_mut().ok_or("Video buffer is not writable")?;
+                buffer.set_pts(gst::ClockTime::from_nseconds(pts));
+                buffer.set_duration(gst::ClockTime::from_nseconds(next_pts - pts));
+                self.video
+                    .push_buffer(video)
+                    .map_err(|e| format!("Video encoder: {e}"))?;
+            }
             let bytes: Vec<u8> = pcm.iter().flat_map(|sample| sample.to_le_bytes()).collect();
             let mut audio = gst::Buffer::from_mut_slice(bytes);
             let buffer = audio.get_mut().ok_or("Audio buffer is not writable")?;
             buffer.set_pts(gst::ClockTime::from_nseconds(audio_pts));
             buffer.set_duration(gst::ClockTime::from_nseconds(audio_end - audio_pts));
-            self.video
-                .push_buffer(video)
-                .map_err(|e| format!("Video encoder: {e}"))?;
             self.audio
                 .push_buffer(audio)
                 .map_err(|e| format!("Audio encoder: {e}"))?;
@@ -318,7 +332,7 @@ impl ProgramRecorder {
             let _ = self.pipeline.set_state(gst::State::Null);
             return Err(error);
         }
-        self.frames += 1;
+        self.frames += u64::from(frame.is_some());
         self.next_frame_index = frame_index + 1;
         self.audio_samples = end_samples;
         Ok(())

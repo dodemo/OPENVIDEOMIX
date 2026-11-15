@@ -20,13 +20,13 @@ use gstreamer_video as gst_video;
 /// Every capture pipeline explicitly uses the same system clock and epoch.
 /// This maps pipeline-local running time; it does not discipline device clocks
 /// or measure the physical exposure time of a camera frame.
-struct CaptureTimeline {
-    clock: gst::Clock,
-    epoch_ns: u64,
+pub(crate) struct CaptureTimeline {
+    pub(crate) clock: gst::Clock,
+    pub(crate) epoch_ns: u64,
 }
 
 impl CaptureTimeline {
-    fn shared() -> &'static Self {
+    pub(crate) fn shared() -> &'static Self {
         static TIMELINE: OnceLock<CaptureTimeline> = OnceLock::new();
         TIMELINE.get_or_init(|| {
             let clock = gst::SystemClock::obtain();
@@ -51,7 +51,7 @@ pub fn capture_clock_now_ns() -> Result<u64, String> {
 
 /// Convert through the sample segment: raw PTS need not equal running time.
 /// Missing metadata, out-of-segment PTS and arithmetic overflow stay unknown.
-fn map_capture_pts_ns(
+pub(crate) fn map_capture_pts_ns(
     pts: Option<gst::ClockTime>,
     segment: Option<&gst::Segment>,
     base_time: Option<gst::ClockTime>,
