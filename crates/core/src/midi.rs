@@ -436,22 +436,26 @@ fn trigger(target: &MidiTarget, state: &MixerState) -> Option<ProductionCommand>
         MidiTarget::MasterMuteToggle => Some(ProductionCommand::SetMasterMute {
             muted: !state.master_bus.muted,
         }),
-        MidiTarget::InputMuteToggle(input) => state
-            .inputs
-            .iter()
-            .find(|s| s.id == input)
-            .map(|s| ProductionCommand::SetInputMute {
-                input,
-                muted: !s.is_muted,
-            }),
-        MidiTarget::InputAfvToggle(input) => state
-            .inputs
-            .iter()
-            .find(|s| s.id == input)
-            .map(|s| ProductionCommand::SetInputAfv {
-                input,
-                enabled: !s.afv,
-            }),
+        MidiTarget::InputMuteToggle(input) => {
+            state
+                .inputs
+                .iter()
+                .find(|s| s.id == input)
+                .map(|s| ProductionCommand::SetInputMute {
+                    input,
+                    muted: !s.is_muted,
+                })
+        }
+        MidiTarget::InputAfvToggle(input) => {
+            state
+                .inputs
+                .iter()
+                .find(|s| s.id == input)
+                .map(|s| ProductionCommand::SetInputAfv {
+                    input,
+                    enabled: !s.afv,
+                })
+        }
         MidiTarget::MasterVolume | MidiTarget::InputVolume(_) => None,
     }
 }
