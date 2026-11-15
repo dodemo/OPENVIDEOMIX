@@ -17,7 +17,7 @@ use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 use openvideomix_core::midi::{
     MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget,
 };
-use openvideomix_core::{InputId, InputKind, MixerState, VideoInput, DEMO_CAMERA_PATH};
+use openvideomix_core::{InputId, InputKind, MixerState, TitleData, VideoInput, DEMO_CAMERA_PATH};
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
 use std::collections::HashMap;
@@ -150,6 +150,9 @@ pub struct OpenVideoMixApp {
     pub status_notification: Option<String>,
     pub show_settings: bool,
     pub show_diagnostics: bool,
+    pub show_title_designer: bool,
+    pub selected_title_input: Option<InputId>,
+    pub editing_title: TitleData,
     pub show_stop_recording_confirm: bool,
     pub show_close_warning_modal: bool,
     pub force_close_confirmed: bool,
@@ -222,6 +225,9 @@ impl OpenVideoMixApp {
             status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
             show_settings: false,
             show_diagnostics: false,
+            show_title_designer: false,
+            selected_title_input: Some(6),
+            editing_title: TitleData::default(),
             show_stop_recording_confirm: false,
             show_close_warning_modal: false,
             force_close_confirmed: false,
@@ -303,6 +309,9 @@ impl OpenVideoMixApp {
             status_notification: None,
             show_settings: false,
             show_diagnostics: false,
+            show_title_designer: false,
+            selected_title_input: Some(6),
+            editing_title: TitleData::default(),
             show_stop_recording_confirm: false,
             show_close_warning_modal: false,
             force_close_confirmed: false,
@@ -809,6 +818,98 @@ impl OpenVideoMixApp {
         }
     }
 
+    /// Render dynamic lower-third title graphic over a monitor canvas
+    fn render_title_graphics(painter: &egui::Painter, rect: Rect, template: &TitleData) {
+        let base_scale = (rect.width() / 1920.0).max(0.18);
+        let scale = base_scale * template.scale;
+
+        let x_pos = rect.min.x + (rect.width() * (template.x_percent.clamp(0.0, 95.0) / 100.0));
+        let y_pos = rect.min.y + (rect.height() * (template.y_percent.clamp(0.0, 95.0) / 100.0));
+
+        let headline_font =
+            egui::FontId::proportional((template.font_size_headline * scale).max(9.0));
+        let subtitle_font =
+            egui::FontId::proportional((template.font_size_subtitle * scale).max(7.0));
+
+        let text_color = Color32::from_rgba_unmultiplied(
+            template.text_color[0],
+            template.text_color[1],
+            template.text_color[2],
+            template.text_color[3],
+        );
+        let subtitle_color = Color32::from_rgba_unmultiplied(
+            template.subtitle_color[0],
+            template.subtitle_color[1],
+            template.subtitle_color[2],
+            template.subtitle_color[3],
+        );
+
+        let headline_galley =
+            painter.layout_no_wrap(template.headline.clone(), headline_font, text_color);
+        let subtitle_galley =
+            painter.layout_no_wrap(template.subtitle.clone(), subtitle_font, subtitle_color);
+
+        let text_w = headline_galley.size().x.max(subtitle_galley.size().x);
+        let gap = 4.0 * scale;
+        let text_h = headline_galley.size().y + subtitle_galley.size().y + gap;
+
+        let pad_h = template.bg_padding * scale;
+        let pad_v = (template.bg_padding * 0.75) * scale;
+        let accent_w = 6.0 * scale;
+
+        let box_w = text_w + (pad_h * 2.0) + accent_w + (6.0 * scale);
+        let box_h = text_h + (pad_v * 2.0);
+
+        let box_rect = Rect::from_min_size(Pos2::new(x_pos, y_pos), Vec2::new(box_w, box_h));
+
+        // 1. Drop shadow
+        if template.has_drop_shadow {
+            let shadow_offset = Vec2::new(
+                template.shadow_offset[0] * scale,
+                template.shadow_offset[1] * scale,
+            );
+            let shadow_rect = box_rect.translate(shadow_offset);
+            let shadow_col = Color32::from_rgba_unmultiplied(
+                template.shadow_color[0],
+                template.shadow_color[1],
+                template.shadow_color[2],
+                template.shadow_color[3],
+            );
+            painter.rect_filled(shadow_rect, template.corner_radius * scale, shadow_col);
+        }
+
+        // 2. Background box
+        let bg_col = Color32::from_rgba_unmultiplied(
+            template.bg_color[0],
+            template.bg_color[1],
+            template.bg_color[2],
+            template.bg_color[3],
+        );
+        painter.rect_filled(box_rect, template.corner_radius * scale, bg_col);
+
+        // 3. Left accent bar
+        let accent_rect = Rect::from_min_size(box_rect.min, Vec2::new(accent_w, box_h));
+        let accent_col = Color32::from_rgba_unmultiplied(
+            template.accent_bar_color[0],
+            template.accent_bar_color[1],
+            template.accent_bar_color[2],
+            template.accent_bar_color[3],
+        );
+        painter.rect_filled(accent_rect, template.corner_radius * scale, accent_col);
+
+        // 4. Headline and Subtitle text galleys
+        let text_x = box_rect.min.x + accent_w + pad_h + (4.0 * scale);
+        let headline_y = box_rect.min.y + pad_v;
+        let subtitle_y = headline_y + headline_galley.size().y + gap;
+
+        painter.galley(Pos2::new(text_x, headline_y), headline_galley, text_color);
+        painter.galley(
+            Pos2::new(text_x, subtitle_y),
+            subtitle_galley,
+            subtitle_color,
+        );
+    }
+
     /// Render video or graphic content inside a monitor rect
     fn render_monitor_content(
         &self,
@@ -977,6 +1078,10 @@ impl OpenVideoMixApp {
                         Color32::from_rgb(150, 200, 255),
                     );
                 }
+                InputKind::Title { template } => {
+                    painter.rect_filled(rect, 0.0, Color32::from_rgb(14, 16, 22));
+                    Self::render_title_graphics(&painter, rect, template);
+                }
                 _ => {
                     painter.rect_filled(rect, 0.0, Color32::BLACK);
                 }
@@ -997,6 +1102,11 @@ impl OpenVideoMixApp {
         if is_program {
             for (idx, ov_id_opt) in self.mixer.active_overlays.iter().enumerate() {
                 if let Some(ov_id) = ov_id_opt {
+                    if let Some(inp) = self.mixer.inputs.iter().find(|i| i.id == *ov_id) {
+                        if let InputKind::Title { template } = &inp.kind {
+                            Self::render_title_graphics(&painter, rect, template);
+                        }
+                    }
                     if let Some(texture) = self.loaded_textures.get(ov_id) {
                         let banner_w = rect.width() * 0.85;
                         let banner_h =
@@ -1331,27 +1441,35 @@ impl eframe::App for OpenVideoMixApp {
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.heading(RichText::new("📹 OPENVIDEOMIX").color(Color32::from_rgb(0, 190, 255)).strong());
+                ui.heading(
+                    RichText::new("📹 OPENVIDEOMIX")
+                        .color(Color32::from_rgb(0, 190, 255))
+                        .strong(),
+                );
                 ui.label(RichText::new("v0.1.0-alpha").weak());
                 ui.separator();
 
                 ui.label(RichText::new("PERFÍL:").strong());
                 ui.label(&self.mixer.settings.output_resolution);
-                ui.label(RichText::new(format!("@ {}", self.mixer.settings.frame_rate)).color(Color32::from_rgb(0, 255, 180)).strong());
+                ui.label(
+                    RichText::new(format!("@ {}", self.mixer.settings.frame_rate))
+                        .color(Color32::from_rgb(0, 255, 180))
+                        .strong(),
+                );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled(false, egui::Button::new("EMITIR (pendente)"))
-                        .on_disabled_hover_text("RTMP/SRT non están implementados. Este botón non inicia unha emisión.");
+                        .on_disabled_hover_text(
+                            "RTMP/SRT non están implementados. Este botón non inicia unha emisión.",
+                        );
                     #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
                     {
                         let view = self.production.as_ref().map(DesktopProduction::view);
-                        let active = view
-                            .as_ref()
-                            .is_some_and(|view| view.recording.active())
+                        let active = view.as_ref().is_some_and(|view| view.recording.active())
                             || self.mixer.is_recording;
-                        let can_interact = (view.as_ref().is_some_and(|view| view.latest.is_some())
-                            || active)
-                            && (!active || !self.mixer.is_safety_locked);
+                        let can_interact =
+                            (view.as_ref().is_some_and(|view| view.latest.is_some()) || active)
+                                && (!active || !self.mixer.is_safety_locked);
                         let btn_text = if active {
                             "PARAR GRAVACIÓN"
                         } else {
@@ -1425,10 +1543,9 @@ impl eframe::App for OpenVideoMixApp {
                     } else {
                         "Cadeado de Seguridade DESACTIVADO. Preme para bloquear o estudio."
                     };
-                    let lock_btn = egui::Button::new(
-                        RichText::new(lock_text).color(lock_text_color).strong(),
-                    )
-                    .fill(lock_fill);
+                    let lock_btn =
+                        egui::Button::new(RichText::new(lock_text).color(lock_text_color).strong())
+                            .fill(lock_fill);
                     if ui.add(lock_btn).on_hover_text(lock_tooltip).clicked() {
                         self.apply_command(ProductionCommand::ToggleSafetyLock);
                     }
@@ -1445,8 +1562,9 @@ impl eframe::App for OpenVideoMixApp {
                     } else {
                         Color32::from_rgb(30, 35, 45)
                     };
-                    let settings_btn = egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(btn_text_color))
-                        .fill(btn_fill);
+                    let settings_btn =
+                        egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(btn_text_color))
+                            .fill(btn_fill);
                     if ui.add(settings_btn).clicked() {
                         self.show_settings = !self.show_settings;
                     }
@@ -1463,10 +1581,9 @@ impl eframe::App for OpenVideoMixApp {
                     } else {
                         Color32::from_rgb(30, 35, 45)
                     };
-                    let diag_btn = egui::Button::new(
-                        RichText::new("📋 DIAGNÓSTICO").color(diag_text_color),
-                    )
-                    .fill(diag_fill);
+                    let diag_btn =
+                        egui::Button::new(RichText::new("📋 DIAGNÓSTICO").color(diag_text_color))
+                            .fill(diag_fill);
                     if ui
                         .add(diag_btn)
                         .on_hover_text(
@@ -1475,6 +1592,30 @@ impl eframe::App for OpenVideoMixApp {
                         .clicked()
                     {
                         self.show_diagnostics = !self.show_diagnostics;
+                    }
+
+                    let title_fill = if self.show_title_designer {
+                        Color32::from_rgb(0, 120, 200)
+                    } else if self.theme_mode.is_dark() {
+                        Color32::from_rgb(45, 50, 60)
+                    } else {
+                        Color32::from_rgb(215, 222, 230)
+                    };
+                    let title_text_color = if self.show_title_designer || self.theme_mode.is_dark()
+                    {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_rgb(30, 35, 45)
+                    };
+                    let title_btn =
+                        egui::Button::new(RichText::new("🎨 TITULADOR").color(title_text_color))
+                            .fill(title_fill);
+                    if ui
+                        .add(title_btn)
+                        .on_hover_text("Deseñador de títulos e rótulos en directo (Lower-Thirds)")
+                        .clicked()
+                    {
+                        self.show_title_designer = !self.show_title_designer;
                     }
                 });
             });
@@ -1894,6 +2035,7 @@ impl eframe::App for OpenVideoMixApp {
                             let mut action_remove = None;
                             let mut action_reorder = None;
                             let mut action_toggle_ov = None;
+                            let mut action_open_title_designer = None;
 
                             for (real_idx, input) in self.mixer.inputs.iter().enumerate() {
                                 // Category filter
@@ -1901,7 +2043,9 @@ impl eframe::App for OpenVideoMixApp {
                                     1 => matches!(&input.kind, InputKind::Camera { .. }),
                                     2 => matches!(
                                         &input.kind,
-                                        InputKind::ImageFile { .. } | InputKind::MediaFile { .. }
+                                        InputKind::ImageFile { .. }
+                                            | InputKind::MediaFile { .. }
+                                            | InputKind::Title { .. }
                                     ),
                                     3 => matches!(
                                         &input.kind,
@@ -2168,6 +2312,20 @@ impl eframe::App for OpenVideoMixApp {
                                                         Some((channel as u8, input.id));
                                                 }
                                             }
+
+                                            if matches!(input.kind, InputKind::Title { .. })
+                                                && ui
+                                                    .button(RichText::new("✏️").small())
+                                                    .on_hover_text(
+                                                        "Editar este título no Deseñador",
+                                                    )
+                                                    .clicked()
+                                            {
+                                                if let InputKind::Title { template } = &input.kind {
+                                                    action_open_title_designer =
+                                                        Some((input.id, template.clone()));
+                                                }
+                                            }
                                         });
                                     });
                                 });
@@ -2199,6 +2357,11 @@ impl eframe::App for OpenVideoMixApp {
                                     channel: ch,
                                     input: id,
                                 });
+                            }
+                            if let Some((id, template)) = action_open_title_designer {
+                                self.selected_title_input = Some(id);
+                                self.editing_title = template;
+                                self.show_title_designer = true;
                             }
                         });
                     });
@@ -2757,6 +2920,363 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
+        // Live Title Designer & Lower-Third Editor
+        if self.show_title_designer {
+            egui::Window::new("🎨 Deseñador de Títulos e Grafismos (Lower-Thirds)")
+                .collapsible(false)
+                .resizable(true)
+                .default_size([620.0, 540.0])
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Lower-Thirds e Rótulos");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("✕ Pechar").clicked() {
+                                self.show_title_designer = false;
+                            }
+                        });
+                    });
+                    ui.separator();
+
+                    // Input selector
+                    let title_inputs: Vec<(InputId, String)> = self
+                        .mixer
+                        .inputs
+                        .iter()
+                        .filter_map(|i| {
+                            if matches!(i.kind, InputKind::Title { .. }) {
+                                Some((i.id, i.name.clone()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    if title_inputs.is_empty() {
+                        ui.label("Non hai entradas de tipo Título configuradas no estudo.");
+                        if ui.button("➕ Crear Nova Entrada de Título").clicked() {
+                            let next_id =
+                                self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0) + 1;
+                            let title_input = VideoInput::new(
+                                next_id,
+                                format!("GRAFISMO #{} - Rótulo", next_id),
+                                InputKind::Title {
+                                    template: TitleData::default(),
+                                },
+                            );
+                            self.mixer.inputs.push(title_input);
+                            self.selected_title_input = Some(next_id);
+                        }
+                        return;
+                    }
+
+                    let current_selected = self.selected_title_input.unwrap_or(title_inputs[0].0);
+                    let mut selected_id = current_selected;
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Entrada de Título a editar:").strong());
+                        egui::ComboBox::from_id_salt("title_input_select")
+                            .selected_text(
+                                title_inputs
+                                    .iter()
+                                    .find(|(id, _)| *id == selected_id)
+                                    .map(|(_, name)| name.as_str())
+                                    .unwrap_or("Seleccionar entrada"),
+                            )
+                            .show_ui(ui, |ui| {
+                                for (id, name) in &title_inputs {
+                                    ui.selectable_value(&mut selected_id, *id, name);
+                                }
+                            });
+
+                        if ui
+                            .button("➕ Novo Título")
+                            .on_hover_text("Engadir nova capa de grafismo ao rack")
+                            .clicked()
+                        {
+                            let next_id =
+                                self.mixer.inputs.iter().map(|i| i.id).max().unwrap_or(0) + 1;
+                            let title_input = VideoInput::new(
+                                next_id,
+                                format!("GRAFISMO #{} - Rótulo", next_id),
+                                InputKind::Title {
+                                    template: TitleData::default(),
+                                },
+                            );
+                            self.mixer.inputs.push(title_input);
+                            selected_id = next_id;
+                        }
+                    });
+
+                    // Sync current selected title data into editing_title if changed
+                    if self.selected_title_input != Some(selected_id) {
+                        self.selected_title_input = Some(selected_id);
+                        if let Some(inp) = self.mixer.inputs.iter().find(|i| i.id == selected_id) {
+                            if let InputKind::Title { template } = &inp.kind {
+                                self.editing_title = template.clone();
+                            }
+                        }
+                    }
+
+                    ui.add_space(6.0);
+
+                    // Quick Model Presets
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Modelos rápidos:").strong());
+                        if ui.button("📘 Portavoz / Convidado").clicked() {
+                            let cur_h = self.editing_title.headline.clone();
+                            let cur_s = self.editing_title.subtitle.clone();
+                            self.editing_title = TitleData::preset_speaker(cur_h, cur_s);
+                            self.apply_command(ProductionCommand::UpdateTitle {
+                                input: selected_id,
+                                template: self.editing_title.clone(),
+                            });
+                        }
+                        if ui.button("🔴 Última Hora").clicked() {
+                            let cur_h = self.editing_title.headline.clone();
+                            let cur_s = self.editing_title.subtitle.clone();
+                            self.editing_title = TitleData::preset_breaking_news(cur_h, cur_s);
+                            self.apply_command(ProductionCommand::UpdateTitle {
+                                input: selected_id,
+                                template: self.editing_title.clone(),
+                            });
+                        }
+                        if ui.button("✨ Mínimo").clicked() {
+                            let cur_h = self.editing_title.headline.clone();
+                            let cur_s = self.editing_title.subtitle.clone();
+                            self.editing_title = TitleData::preset_minimal(cur_h, cur_s);
+                            self.apply_command(ProductionCommand::UpdateTitle {
+                                input: selected_id,
+                                template: self.editing_title.clone(),
+                            });
+                        }
+                    });
+
+                    ui.add_space(8.0);
+                    ui.separator();
+
+                    let mut changed = false;
+
+                    // Text Content Section
+                    ui.group(|ui| {
+                        ui.heading("📝 Contido do Rótulo");
+                        ui.horizontal(|ui| {
+                            ui.label("Titular principal:");
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut self.editing_title.headline)
+                                        .desired_width(340.0),
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Subtítulo / Cargo:");
+                            if ui
+                                .add(
+                                    egui::TextEdit::singleline(&mut self.editing_title.subtitle)
+                                        .desired_width(340.0),
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Spatial Positioning & Geometry
+                    ui.group(|ui| {
+                        ui.heading("📐 Posicionamento e Escala");
+                        ui.horizontal(|ui| {
+                            ui.label("Posición X:");
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self.editing_title.x_percent,
+                                        0.0..=90.0,
+                                    )
+                                    .suffix("%"),
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            ui.label("Posición Y:");
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut self.editing_title.y_percent,
+                                        0.0..=90.0,
+                                    )
+                                    .suffix("%"),
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Escala:");
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut self.editing_title.scale, 0.5..=2.5)
+                                        .step_by(0.05),
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            ui.label("Recheo:");
+                            if ui
+                                .add(egui::Slider::new(
+                                    &mut self.editing_title.bg_padding,
+                                    4.0..=30.0,
+                                ))
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            ui.label("Redondeo:");
+                            if ui
+                                .add(egui::Slider::new(
+                                    &mut self.editing_title.corner_radius,
+                                    0.0..=20.0,
+                                ))
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Typography & Styling
+                    ui.group(|ui| {
+                        ui.heading("🎨 Tipografía e Estilo");
+                        ui.horizontal(|ui| {
+                            ui.label("Tamaño Titular:");
+                            if ui
+                                .add(egui::Slider::new(
+                                    &mut self.editing_title.font_size_headline,
+                                    12.0..=48.0,
+                                ))
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            ui.label("Tamaño Subtítulo:");
+                            if ui
+                                .add(egui::Slider::new(
+                                    &mut self.editing_title.font_size_subtitle,
+                                    10.0..=32.0,
+                                ))
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            if ui
+                                .checkbox(
+                                    &mut self.editing_title.has_drop_shadow,
+                                    "Sombra proxectada (Drop Shadow)",
+                                )
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                            if self.editing_title.has_drop_shadow {
+                                ui.label("Desprazamento X:");
+                                if ui
+                                    .add(egui::Slider::new(
+                                        &mut self.editing_title.shadow_offset[0],
+                                        -10.0..=10.0,
+                                    ))
+                                    .changed()
+                                {
+                                    changed = true;
+                                }
+                                ui.label("Y:");
+                                if ui
+                                    .add(egui::Slider::new(
+                                        &mut self.editing_title.shadow_offset[1],
+                                        -10.0..=10.0,
+                                    ))
+                                    .changed()
+                                {
+                                    changed = true;
+                                }
+                            }
+                        });
+                    });
+
+                    // Live apply
+                    if changed {
+                        self.editing_title.sanitize();
+                        self.apply_command(ProductionCommand::UpdateTitle {
+                            input: selected_id,
+                            template: self.editing_title.clone(),
+                        });
+                    }
+
+                    ui.add_space(8.0);
+                    ui.separator();
+
+                    // Overlay 1-4 Quick Control & Save/Load
+                    ui.horizontal(|ui| {
+                        let is_ov1 = self.mixer.active_overlays[0] == Some(selected_id);
+                        let ov1_text = if is_ov1 {
+                            "🔴 Quitar de Overlay 1"
+                        } else {
+                            "🟢 Activar en Overlay 1"
+                        };
+                        if ui.button(RichText::new(ov1_text).strong()).clicked() {
+                            self.apply_command(ProductionCommand::ToggleOverlay {
+                                channel: 1,
+                                input: selected_id,
+                            });
+                        }
+
+                        ui.separator();
+
+                        if ui.button("💾 Gardar Modelo JSON...").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("modelo-rotulo.ovtitle.json")
+                                .add_filter("OPENVIDEOMIX Title", &["ovtitle.json", "json"])
+                                .save_file()
+                            {
+                                if let Ok(json) = serde_json::to_string_pretty(&self.editing_title)
+                                {
+                                    let _ = std::fs::write(path, json);
+                                }
+                            }
+                        }
+
+                        if ui.button("📂 Cargar Modelo JSON...").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("OPENVIDEOMIX Title", &["ovtitle.json", "json"])
+                                .pick_file()
+                            {
+                                if let Ok(data) = std::fs::read_to_string(path) {
+                                    if let Ok(loaded) = serde_json::from_str::<TitleData>(&data) {
+                                        self.editing_title = loaded;
+                                        self.apply_command(ProductionCommand::UpdateTitle {
+                                            input: selected_id,
+                                            template: self.editing_title.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    });
+                });
+        }
+
         // Broadcast Safety Modal: Confirm Stop Recording
         if self.show_stop_recording_confirm {
             egui::Window::new("⚠️ Confirmar Parada de Gravación")
@@ -2774,9 +3294,7 @@ impl eframe::App for OpenVideoMixApp {
                         );
                         ui.vertical(|ui| {
                             ui.heading("Seguro que queres deter a gravación de Program?");
-                            ui.label(
-                                "A gravación actual finalizará e o ficheiro quedará gardado.",
-                            );
+                            ui.label("A gravación actual finalizará e o ficheiro quedará gardado.");
                         });
                     });
                     ui.add_space(12.0);
@@ -3110,5 +3628,94 @@ mod gui_command_tests {
         app.show_close_warning_modal = false;
         assert!(!app.show_close_warning_modal);
         assert!(app.force_close_confirmed);
+    }
+
+    #[test]
+    fn test_title_designer_and_lower_thirds() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert!(!app.show_title_designer);
+        assert_eq!(app.selected_title_input, Some(6));
+
+        // Find the title input (default input 6)
+        let title_input = app
+            .mixer
+            .inputs
+            .iter()
+            .find(|i| matches!(i.kind, InputKind::Title { .. }))
+            .expect("default state must include a Title input");
+
+        let title_id = title_input.id;
+        assert_eq!(title_id, 6);
+
+        // Open title designer
+        app.selected_title_input = Some(title_id);
+        app.show_title_designer = true;
+        if let InputKind::Title { template } = &title_input.kind {
+            app.editing_title = template.clone();
+        }
+
+        // Edit template with Galician / Spanish Unicode characters
+        let mut updated = app.editing_title.clone();
+        updated.headline = "ÚLTIMA HORA: Eleccións no Parlamento de Galicia".to_string();
+        updated.subtitle =
+            "Santiago de Compostela · Conexión en directo co 100% escrutado".to_string();
+        updated.x_percent = 5.0;
+        updated.y_percent = 82.0;
+        updated.scale = 1.1;
+
+        // Apply command
+        app.apply_command(ProductionCommand::UpdateTitle {
+            input: title_id,
+            template: updated.clone(),
+        });
+
+        // Verify that mixer state has updated
+        let modified = app.mixer.inputs.iter().find(|i| i.id == title_id).unwrap();
+        if let InputKind::Title { template } = &modified.kind {
+            assert_eq!(
+                template.headline,
+                "ÚLTIMA HORA: Eleccións no Parlamento de Galicia"
+            );
+            assert_eq!(
+                template.subtitle,
+                "Santiago de Compostela · Conexión en directo co 100% escrutado"
+            );
+            assert_eq!(template.x_percent, 5.0);
+            assert_eq!(template.y_percent, 82.0);
+        } else {
+            panic!("expected InputKind::Title");
+        }
+
+        // Toggle title onto Overlay 1
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::ToggleOverlay {
+            channel: 1,
+            input: title_id,
+        });
+        assert_eq!(app.mixer.active_overlays[0], Some(title_id));
+        assert!(
+            app.mixer
+                .inputs
+                .iter()
+                .find(|i| i.id == title_id)
+                .unwrap()
+                .is_overlay_active
+        );
+
+        // Turn overlay 1 off
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::ToggleOverlay {
+            channel: 1,
+            input: title_id,
+        });
+        assert_eq!(app.mixer.active_overlays[0], None);
+        assert!(
+            !app.mixer
+                .inputs
+                .iter()
+                .find(|i| i.id == title_id)
+                .unwrap()
+                .is_overlay_active
+        );
     }
 }

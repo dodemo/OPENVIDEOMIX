@@ -18,6 +18,7 @@ pub mod reference_output;
 pub mod commands;
 pub mod diagnostics;
 pub mod midi;
+pub mod title;
 pub mod vmix_compat;
 
 pub use audio_graph::{AudioDriftStats, AudioGraph, AudioMeterState, ChannelRouting};
@@ -40,6 +41,7 @@ pub use project_store::{
 pub use reference_compositor::{
     CompositeError, RgbaFrame, StingerSequence, Transition, TransitionTransaction,
 };
+pub use title::TitleData;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -51,13 +53,14 @@ pub type InputId = u32;
 pub const DEMO_CAMERA_PATH: &str = "demo:camera-not-configured";
 
 /// Supported broadcast input formats
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum InputKind {
     Camera { device_path: String },
     ScreenCapture { display_id: u32 },
     NetworkStream { url: String, protocol: String },
     MediaFile { path: String },
     ImageFile { path: String },
+    Title { template: TitleData },
     ColorBars,
     AudioOnly,
 }
@@ -245,6 +248,13 @@ impl Default for MixerState {
                 },
             ),
             VideoInput::new(5, "BARRAS - SMPTE 50p Test", InputKind::ColorBars),
+            VideoInput::new(
+                6,
+                "GRAFISMO - Rótulo / Titular en Directo",
+                InputKind::Title {
+                    template: TitleData::default(),
+                },
+            ),
         ];
 
         // Program initial: CAM 1, Preview initial: BARRAS
