@@ -22,6 +22,9 @@ use serde::{Deserialize, Serialize};
 /// Unique identifier for an input source
 pub type InputId = u32;
 
+/// Sentinel for demo cameras: this is never an opened physical device.
+pub const DEMO_CAMERA_PATH: &str = "demo:camera-not-configured";
+
 /// Supported broadcast input formats
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputKind {
@@ -184,16 +187,16 @@ impl Default for MixerState {
         let mut inputs = vec![
             VideoInput::new(
                 1,
-                "CAM 1 - Principal (USB/V4L2)",
+                "CAM 1 - Principal (DEMO: sen captura real)",
                 InputKind::Camera {
-                    device_path: "/dev/video0".into(),
+                    device_path: DEMO_CAMERA_PATH.into(),
                 },
             ),
             VideoInput::new(
                 2,
-                "CAM 2 - Plano Xeral (USB/V4L2)",
+                "CAM 2 - Plano Xeral (DEMO: sen captura real)",
                 InputKind::Camera {
-                    device_path: "/dev/video2".into(),
+                    device_path: DEMO_CAMERA_PATH.into(),
                 },
             ),
             VideoInput::new(
@@ -315,6 +318,20 @@ impl MixerState {
 #[cfg(test)]
 mod profile_defaults_tests {
     use super::*;
+
+    #[test]
+    fn demo_cameras_do_not_claim_physical_devices() {
+        let mixer = MixerState::default();
+        for id in [1, 2] {
+            let input = mixer.inputs.iter().find(|input| input.id == id).unwrap();
+            assert!(input.name.contains("DEMO"));
+            assert!(!input.name.contains("V4L2"));
+            assert!(matches!(
+                &input.kind,
+                InputKind::Camera { device_path } if device_path.as_str() == DEMO_CAMERA_PATH
+            ));
+        }
+    }
 
     #[test]
     fn new_project_and_inputs_use_the_same_1080p50_profile() {
