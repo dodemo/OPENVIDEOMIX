@@ -170,6 +170,25 @@ impl AudioBusStrip {
             meter_r: AudioMeterState::default(),
         }
     }
+
+    /// Calculate and update True Peak and RMS dBFS meters from stereo interleaved PCM
+    pub fn update_meters(&mut self, stereo_samples: &[f32]) {
+        if stereo_samples.len() < 2 {
+            return;
+        }
+
+        let (chunks, _) = stereo_samples.as_chunks::<2>();
+        let mut left_samples = Vec::with_capacity(chunks.len());
+        let mut right_samples = Vec::with_capacity(chunks.len());
+
+        for &[l, r] in chunks {
+            left_samples.push(l);
+            right_samples.push(r);
+        }
+
+        self.meter_l = AudioMeterState::calculate(&left_samples);
+        self.meter_r = AudioMeterState::calculate(&right_samples);
+    }
 }
 
 /// Statistics for audio/video clock alignment and drift
@@ -284,40 +303,19 @@ impl AudioGraph {
             *sample = (*sample * b_gain).clamp(-1.0, 1.0);
         }
 
-        // Update real dBFS meters
-        self.update_strip_meters(&master_sum, true);
-        self.update_strip_meters(&bus_a_sum, false);
-        self.update_strip_meters(&bus_b_sum, false);
-
         // Headphones default to Master if no PFL/AFL is selected
         let any_pfl_afl = self.routings.iter().any(|r| r.pfl || r.afl);
         if !any_pfl_afl {
             headphones_sum.copy_from_slice(&master_sum);
         }
 
+        // Update real dBFS meters across all output strips
+        self.master_bus.update_meters(&master_sum);
+        self.bus_a.update_meters(&bus_a_sum);
+        self.bus_b.update_meters(&bus_b_sum);
+        self.headphones_bus.update_meters(&headphones_sum);
+
         master_sum
-    }
-
-    fn update_strip_meters(&mut self, stereo_samples: &[f32], is_master: bool) {
-        if stereo_samples.len() < 2 {
-            return;
-        }
-
-        let mut left_samples = Vec::with_capacity(stereo_samples.len() / 2);
-        let mut right_samples = Vec::with_capacity(stereo_samples.len() / 2);
-
-        for chunk in stereo_samples.chunks_exact(2) {
-            left_samples.push(chunk[0]);
-            right_samples.push(chunk[1]);
-        }
-
-        let meter_l = AudioMeterState::calculate(&left_samples);
-        let meter_r = AudioMeterState::calculate(&right_samples);
-
-        if is_master {
-            self.master_bus.meter_l = meter_l;
-            self.master_bus.meter_r = meter_r;
-        }
     }
 
     /// Account for audio samples vs video frame timestamps and record drift
