@@ -15,7 +15,7 @@ use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 use openvideomix_core::midi::{
     MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget,
 };
-use openvideomix_core::{DEMO_CAMERA_PATH, InputId, InputKind, MixerState, VideoInput};
+use openvideomix_core::{InputId, InputKind, MixerState, VideoInput, DEMO_CAMERA_PATH};
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
 use std::collections::HashMap;
