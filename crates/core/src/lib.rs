@@ -23,6 +23,9 @@ pub use midi::{
     MidiDeviceSupportEntry, MidiEvent, MidiLearnSession, MidiMapper, MidiProfile, MidiSource,
     MidiTarget, TakeoverMode,
 };
+pub use reference_compositor::{
+    CompositeError, RgbaFrame, StingerSequence, Transition, TransitionTransaction,
+};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -92,6 +95,7 @@ pub enum TransitionType {
     Fade,
     Merge,
     Wipe,
+    Stinger,
 }
 
 /// Audio Bus channel
@@ -170,6 +174,8 @@ pub struct MixerState {
     pub program_input: Option<InputId>,
     pub preview_input: Option<InputId>,
     pub active_overlay_1: Option<InputId>,
+    #[serde(default)]
+    pub active_overlays: [Option<InputId>; 4],
     pub overlay_opacity: f32, // 0.0 to 1.0
     pub active_transition: TransitionType,
     pub transition_duration_ms: u32,
@@ -231,6 +237,7 @@ impl Default for MixerState {
             program_input: Some(1),
             preview_input: Some(5),
             active_overlay_1: None,
+            active_overlays: [None; 4],
             overlay_opacity: 1.0,
             active_transition: TransitionType::Fade,
             transition_duration_ms: 500,
@@ -277,16 +284,41 @@ impl MixerState {
         self.update_tally_flags();
     }
 
+    /// Toggle an overlay channel (1..=4) for a specific input
+    pub fn toggle_overlay(&mut self, channel: u8, id: InputId) -> Result<(), &'static str> {
+        if !(1..=4).contains(&channel) {
+            return Err("Overlay channel must be between 1 and 4");
+        }
+        let idx = (channel - 1) as usize;
+        if self.active_overlays[idx] == Some(id) {
+            self.active_overlays[idx] = None;
+        } else {
+            self.active_overlays[idx] = Some(id);
+        }
+        if channel == 1 {
+            self.active_overlay_1 = self.active_overlays[0];
+        }
+        self.update_tally_flags();
+        Ok(())
+    }
+
+    /// Set an overlay channel (1..=4) to an optional input
+    pub fn set_overlay(&mut self, channel: u8, id: Option<InputId>) -> Result<(), &'static str> {
+        if !(1..=4).contains(&channel) {
+            return Err("Overlay channel must be between 1 and 4");
+        }
+        let idx = (channel - 1) as usize;
+        self.active_overlays[idx] = id;
+        if channel == 1 {
+            self.active_overlay_1 = id;
+        }
+        self.update_tally_flags();
+        Ok(())
+    }
+
     /// Toggle Overlay 1 for a specific input
     pub fn toggle_overlay_1(&mut self, id: InputId) {
-        if self.active_overlay_1 == Some(id) {
-            self.active_overlay_1 = None;
-        } else {
-            self.active_overlay_1 = Some(id);
-        }
-        for input in &mut self.inputs {
-            input.is_overlay_active = self.active_overlay_1 == Some(input.id);
-        }
+        let _ = self.toggle_overlay(1, id);
     }
 
     /// Remove an input from the mixer cleanly and safely
@@ -302,15 +334,27 @@ impl MixerState {
         if self.active_overlay_1 == Some(id) {
             self.active_overlay_1 = None;
         }
+        for overlay in &mut self.active_overlays {
+            if *overlay == Some(id) {
+                *overlay = None;
+            }
+        }
         self.update_tally_flags();
     }
 
     /// Update tally state for all inputs
     pub fn update_tally_flags(&mut self) {
+        if self.active_overlays[0] != self.active_overlay_1 {
+            if self.active_overlays[0].is_some() {
+                self.active_overlay_1 = self.active_overlays[0];
+            } else {
+                self.active_overlays[0] = self.active_overlay_1;
+            }
+        }
         for input in &mut self.inputs {
             input.is_tally_program = self.program_input == Some(input.id);
             input.is_tally_preview = self.preview_input == Some(input.id);
-            input.is_overlay_active = self.active_overlay_1 == Some(input.id);
+            input.is_overlay_active = self.active_overlays.contains(&Some(input.id));
         }
     }
 

@@ -4,6 +4,8 @@
 //! WIPE and alpha overlays. It is NOT a real-time or GPU-accelerated media
 //! engine. A future wgpu implementation must produce equivalent test frames.
 
+use crate::InputId;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompositeError {
     InvalidDimensions,
@@ -245,6 +247,136 @@ pub fn overlay_stack(
     Ok(frame)
 }
 
+/// A Stinger transition sequence consisting of alpha-composited animation frames
+/// and an explicit cut frame index where background switching takes place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StingerSequence {
+    pub frames: Vec<RgbaFrame>,
+    pub cut_frame_index: usize,
+}
+
+impl StingerSequence {
+    pub fn new(frames: Vec<RgbaFrame>, cut_frame_index: usize) -> Result<Self, CompositeError> {
+        if frames.is_empty() {
+            return Err(CompositeError::InvalidDimensions);
+        }
+        if cut_frame_index >= frames.len() {
+            return Err(CompositeError::InvalidProgress);
+        }
+        let w = frames[0].width;
+        let h = frames[0].height;
+        for frame in &frames {
+            if frame.width != w || frame.height != h {
+                return Err(CompositeError::DimensionMismatch);
+            }
+        }
+        Ok(Self {
+            frames,
+            cut_frame_index,
+        })
+    }
+
+    #[inline]
+    pub fn total_frames(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// Determines if the destination frame (to) should be active at the given progress.
+    #[inline]
+    pub fn is_destination_active(&self, progress: f32) -> Result<bool, CompositeError> {
+        if !progress.is_finite() || !(0.0..=1.0).contains(&progress) {
+            return Err(CompositeError::InvalidProgress);
+        }
+        let frame_idx = ((self.frames.len() - 1) as f32 * progress)
+            .round()
+            .clamp(0.0, (self.frames.len() - 1) as f32) as usize;
+        Ok(frame_idx >= self.cut_frame_index)
+    }
+
+    /// Compose the output at a given transition progress (0.0..=1.0).
+    /// Before the cut frame index: background is `from`.
+    /// At and after the cut frame index: background is `to`.
+    /// The stinger animation frame at `progress` is alpha-composited on top of the active background.
+    pub fn compose(
+        &self,
+        from: &RgbaFrame,
+        to: &RgbaFrame,
+        progress: f32,
+    ) -> Result<RgbaFrame, CompositeError> {
+        from.same_dimensions(to)?;
+        if !progress.is_finite() || !(0.0..=1.0).contains(&progress) {
+            return Err(CompositeError::InvalidProgress);
+        }
+        let frame_idx = ((self.frames.len() - 1) as f32 * progress)
+            .round()
+            .clamp(0.0, (self.frames.len() - 1) as f32) as usize;
+        let background = if frame_idx < self.cut_frame_index {
+            from
+        } else {
+            to
+        };
+        background.same_dimensions(&self.frames[frame_idx])?;
+        overlay(background, &self.frames[frame_idx])
+    }
+}
+
+/// Active transition transaction between sources with monotonic timing and progress tracking.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TransitionTransaction {
+    pub from_source: Option<InputId>,
+    pub to_source: InputId,
+    pub start_timestamp_ns: u64,
+    pub duration_ns: u64,
+    pub progress: f32,
+    pub is_completed: bool,
+}
+
+impl TransitionTransaction {
+    pub fn new(
+        from_source: Option<InputId>,
+        to_source: InputId,
+        is_cut: bool,
+        start_timestamp_ns: u64,
+        duration_ms: u32,
+    ) -> Self {
+        let duration_ns = (duration_ms as u64) * 1_000_000;
+        let immediate = is_cut || duration_ms == 0;
+        Self {
+            from_source,
+            to_source,
+            start_timestamp_ns,
+            duration_ns,
+            progress: if immediate { 1.0 } else { 0.0 },
+            is_completed: immediate,
+        }
+    }
+
+    /// Advance transition given the current monotonic timestamp in nanoseconds.
+    pub fn update(&mut self, current_timestamp_ns: u64) -> f32 {
+        if self.is_completed {
+            return 1.0;
+        }
+        if current_timestamp_ns <= self.start_timestamp_ns {
+            self.progress = 0.0;
+            return 0.0;
+        }
+        let elapsed_ns = current_timestamp_ns.saturating_sub(self.start_timestamp_ns);
+        if self.duration_ns == 0 || elapsed_ns >= self.duration_ns {
+            self.progress = 1.0;
+            self.is_completed = true;
+        } else {
+            self.progress = (elapsed_ns as f64 / self.duration_ns as f64).clamp(0.0, 1.0) as f32;
+        }
+        self.progress
+    }
+
+    /// Interrupt/cancel current transition immediately (takes to_source directly).
+    pub fn cancel_to_cut(&mut self) {
+        self.progress = 1.0;
+        self.is_completed = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,5 +535,96 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn stinger_validates_dimensions_and_cut_frame() {
+        assert_eq!(
+            StingerSequence::new(vec![], 0),
+            Err(CompositeError::InvalidDimensions)
+        );
+        let f1 = RgbaFrame::solid(2, 2, [255, 255, 255, 0]).unwrap();
+        let f2_mismatch = RgbaFrame::solid(3, 2, [255, 255, 255, 0]).unwrap();
+        assert_eq!(
+            StingerSequence::new(vec![f1.clone(), f2_mismatch], 0),
+            Err(CompositeError::DimensionMismatch)
+        );
+        assert_eq!(
+            StingerSequence::new(vec![f1.clone()], 1),
+            Err(CompositeError::InvalidProgress)
+        );
+        assert!(StingerSequence::new(vec![f1], 0).is_ok());
+    }
+
+    #[test]
+    fn stinger_switches_background_at_cut_frame_and_blends_animation() {
+        let from = RgbaFrame::solid(2, 2, [255, 0, 0, 255]).unwrap(); // Red
+        let to = RgbaFrame::solid(2, 2, [0, 0, 255, 255]).unwrap(); // Blue
+
+        // 3-frame stinger animation:
+        // Frame 0: Semi-transparent white (alpha 128)
+        // Frame 1: Fully opaque black (covers screen completely, cut point)
+        // Frame 2: Semi-transparent white (alpha 128)
+        let s0 = RgbaFrame::solid(2, 2, [255, 255, 255, 128]).unwrap();
+        let s1 = RgbaFrame::solid(2, 2, [0, 0, 0, 255]).unwrap();
+        let s2 = RgbaFrame::solid(2, 2, [255, 255, 255, 128]).unwrap();
+
+        let stinger = StingerSequence::new(vec![s0, s1, s2], 1).unwrap();
+        assert_eq!(stinger.total_frames(), 3);
+
+        // At progress 0.0: frame 0, before cut point -> background is 'from' (Red)
+        assert!(!stinger.is_destination_active(0.0).unwrap());
+        let res0 = stinger.compose(&from, &to, 0.0).unwrap();
+        // Red blended with semi-transparent white: [255, 128, 128, 255]
+        let p0 = pixel(&res0, 0);
+        assert_eq!(p0[0], 255);
+        assert_eq!(p0[1], 128);
+        assert_eq!(p0[2], 128);
+
+        // At progress 0.5: frame 1, at cut point -> background is 'to' (Blue), but stinger is opaque black
+        assert!(stinger.is_destination_active(0.5).unwrap());
+        let res1 = stinger.compose(&from, &to, 0.5).unwrap();
+        assert_eq!(pixel(&res1, 0), [0, 0, 0, 255]);
+
+        // At progress 1.0: frame 2, after cut point -> background is 'to' (Blue)
+        assert!(stinger.is_destination_active(1.0).unwrap());
+        let res2 = stinger.compose(&from, &to, 1.0).unwrap();
+        // Blue blended with semi-transparent white: [128, 128, 255, 255]
+        let p2 = pixel(&res2, 0);
+        assert_eq!(p2[0], 128);
+        assert_eq!(p2[1], 128);
+        assert_eq!(p2[2], 255);
+    }
+
+    #[test]
+    fn transition_transaction_tracks_monotonic_progress_and_completion() {
+        let mut tx = TransitionTransaction::new(Some(1), 2, false, 1_000_000_000, 500);
+        assert_eq!(tx.progress, 0.0);
+        assert!(!tx.is_completed);
+
+        // Before start timestamp
+        assert_eq!(tx.update(500_000_000), 0.0);
+        assert!(!tx.is_completed);
+
+        // Exactly halfway (250 ms = 250_000_000 ns elapsed)
+        let mid = tx.update(1_250_000_000);
+        assert!((mid - 0.5).abs() < 1e-4);
+        assert!(!tx.is_completed);
+
+        // Finished (500 ms elapsed)
+        let done = tx.update(1_500_000_000);
+        assert_eq!(done, 1.0);
+        assert!(tx.is_completed);
+
+        // An immediate cut transaction starts completed
+        let cut_tx = TransitionTransaction::new(Some(1), 2, true, 1_000_000_000, 500);
+        assert_eq!(cut_tx.progress, 1.0);
+        assert!(cut_tx.is_completed);
+
+        // Cancelling takes immediately to cut
+        let mut cancelled = TransitionTransaction::new(Some(1), 2, false, 1_000_000_000, 500);
+        cancelled.cancel_to_cut();
+        assert_eq!(cancelled.progress, 1.0);
+        assert!(cancelled.is_completed);
     }
 }
