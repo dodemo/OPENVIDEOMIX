@@ -5,6 +5,7 @@
 
 pub mod camera;
 pub mod camera_registry;
+pub mod media_source;
 pub mod media_timebase;
 pub mod output_schedule;
 pub mod video_profile;
@@ -19,6 +20,12 @@ pub mod midi;
 pub mod vmix_compat;
 
 pub use audio_graph::{AudioDriftStats, AudioGraph, AudioMeterState, ChannelRouting};
+pub use media_source::{
+    BoundedFrameQueue, IngestHealth, IngestStatus, MediaPlaybackState, ObsbotTiny2Profile,
+    SourceError, SourceLifecycle, OBSBOT_TINY2_PAN_MAX, OBSBOT_TINY2_PAN_MIN, OBSBOT_TINY2_PID,
+    OBSBOT_TINY2_TILT_MAX, OBSBOT_TINY2_TILT_MIN, OBSBOT_TINY2_VID, OBSBOT_TINY2_ZOOM_MAX,
+    OBSBOT_TINY2_ZOOM_MIN,
+};
 pub use midi::{
     device_support_matrix, mingzhe_b0fv93gs5z_candidate_preset, MidiBinding,
     MidiDeviceSupportEntry, MidiEvent, MidiLearnSession, MidiMapper, MidiProfile, MidiSource,
