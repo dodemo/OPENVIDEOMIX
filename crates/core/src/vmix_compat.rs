@@ -65,15 +65,11 @@ pub fn translate_shortcut(
             input: input_id_from_vmix_number(input_number, state)?,
             muted: true,
         }),
-        "Lock" if input_number.is_none() => {
-            Ok(ProductionCommand::SetSafetyLock { locked: true })
-        }
+        "Lock" if input_number.is_none() => Ok(ProductionCommand::SetSafetyLock { locked: true }),
         "Unlock" if input_number.is_none() => {
             Ok(ProductionCommand::SetSafetyLock { locked: false })
         }
-        "ToggleSafetyLock" if input_number.is_none() => {
-            Ok(ProductionCommand::ToggleSafetyLock)
-        }
+        "ToggleSafetyLock" if input_number.is_none() => Ok(ProductionCommand::ToggleSafetyLock),
         _ => Err(ShortcutError::UnsupportedFunction(function.to_string())),
     }
 }

@@ -1175,11 +1175,12 @@ impl eframe::App for OpenVideoMixApp {
         self.gui_time = ctx.input(|input| input.time);
 
         // Broadcast Safety Close Guard: intercept OS close ([X], Alt+F4) if live/recording
-        if ctx.input(|i| i.viewport().close_requested()) {
-            if !self.force_close_confirmed && self.is_recording_or_streaming() {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.show_close_warning_modal = true;
-            }
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.force_close_confirmed
+            && self.is_recording_or_streaming()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_close_warning_modal = true;
         }
 
         if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, Key::Q)) {
