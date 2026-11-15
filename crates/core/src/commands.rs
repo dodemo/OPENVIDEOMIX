@@ -69,6 +69,10 @@ pub enum ProductionCommand {
     SetFadeToBlack {
         enabled: bool,
     },
+    ToggleSafetyLock,
+    SetSafetyLock {
+        locked: bool,
+    },
     ReorderInput {
         input: InputId,
         target_index: usize,
@@ -103,6 +107,8 @@ pub struct ProductionSnapshot {
     pub master_muted: bool,
     #[serde(default)]
     pub is_fade_to_black: bool,
+    #[serde(default)]
+    pub is_safety_locked: bool,
 }
 
 impl ProductionSnapshot {
@@ -116,6 +122,7 @@ impl ProductionSnapshot {
             master_volume: mixer.master_bus.volume,
             master_muted: mixer.master_bus.muted,
             is_fade_to_black: mixer.is_fade_to_black,
+            is_safety_locked: mixer.is_safety_locked,
         }
     }
 }
@@ -262,6 +269,12 @@ impl CommandDispatcher {
             }
             ProductionCommand::SetFadeToBlack { enabled } => {
                 state.is_fade_to_black = enabled;
+            }
+            ProductionCommand::ToggleSafetyLock => {
+                state.toggle_safety_lock();
+            }
+            ProductionCommand::SetSafetyLock { locked } => {
+                state.set_safety_lock(locked);
             }
             ProductionCommand::ReorderInput {
                 input,
@@ -633,5 +646,67 @@ mod live_recording_tests {
             .unwrap()
             .live_audio
             .is_none());
+    }
+
+    #[test]
+    fn safety_lock_commands_and_input_removal_guard() {
+        let mut state = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+
+        assert!(!state.is_safety_locked);
+
+        // ToggleSafetyLock: off -> on
+        let snap1 = dispatcher
+            .dispatch(&mut state, ProductionCommand::ToggleSafetyLock)
+            .unwrap();
+        assert!(state.is_safety_locked);
+        assert!(snap1.is_safety_locked);
+
+        // While safety locked, remove_input must be safely blocked
+        let initial_input_count = state.inputs.len();
+        let first_id = state.inputs[0].id;
+        state.remove_input(first_id);
+        assert_eq!(state.inputs.len(), initial_input_count);
+        assert!(state.inputs.iter().any(|i| i.id == first_id));
+
+        // ToggleSafetyLock: on -> off
+        let snap2 = dispatcher
+            .dispatch(&mut state, ProductionCommand::ToggleSafetyLock)
+            .unwrap();
+        assert!(!state.is_safety_locked);
+        assert!(!snap2.is_safety_locked);
+
+        // SetSafetyLock explicit
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::SetSafetyLock { locked: true },
+            )
+            .unwrap();
+        assert!(state.is_safety_locked);
+
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::SetSafetyLock { locked: false },
+            )
+            .unwrap();
+        assert!(!state.is_safety_locked);
+
+        // When unlocked, remove_input operates normally
+        state.remove_input(first_id);
+        assert_eq!(state.inputs.len(), initial_input_count - 1);
+        assert!(!state.inputs.iter().any(|i| i.id == first_id));
+
+        // Serde roundtrip checks
+        let cmd_toggle = ProductionCommand::ToggleSafetyLock;
+        let json_toggle = serde_json::to_string(&cmd_toggle).unwrap();
+        let decoded_toggle: ProductionCommand = serde_json::from_str(&json_toggle).unwrap();
+        assert_eq!(decoded_toggle, cmd_toggle);
+
+        let cmd_set = ProductionCommand::SetSafetyLock { locked: true };
+        let json_set = serde_json::to_string(&cmd_set).unwrap();
+        let decoded_set: ProductionCommand = serde_json::from_str(&json_set).unwrap();
+        assert_eq!(decoded_set, cmd_set);
     }
 }
