@@ -10,6 +10,7 @@ pub mod output_schedule;
 pub mod video_profile;
 
 pub mod audio_graph;
+pub mod project_store;
 pub mod reference_compositor;
 pub mod reference_output;
 
@@ -22,6 +23,10 @@ pub use midi::{
     device_support_matrix, mingzhe_b0fv93gs5z_candidate_preset, MidiBinding,
     MidiDeviceSupportEntry, MidiEvent, MidiLearnSession, MidiMapper, MidiProfile, MidiSource,
     MidiTarget, TakeoverMode,
+};
+pub use project_store::{
+    OutputMetrics, OutputStatus, ProjectFile, ProjectInputEntry, ProjectLoadReport,
+    ProjectStoreError, CURRENT_PROJECT_VERSION,
 };
 pub use reference_compositor::{
     CompositeError, RgbaFrame, StingerSequence, Transition, TransitionTransaction,
@@ -99,7 +104,7 @@ pub enum TransitionType {
 }
 
 /// Audio Bus channel
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioBus {
     pub name: String,
     pub volume: f32, // 0.0 to 1.0
@@ -123,7 +128,7 @@ impl AudioBus {
 }
 
 /// Studio and hardware configuration settings
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProjectSettings {
     pub output_resolution: String, // e.g. "1920x1080"
     pub frame_rate: String,        // e.g. "50.00 fps"
