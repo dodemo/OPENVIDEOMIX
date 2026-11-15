@@ -1,0 +1,27 @@
+name: Queue owner-created issues for local OpenHands
+
+# No agents or models run in GitHub Actions. This only sets the label
+# consumed by the existing OpenHands Issue -> Draft PR automation.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  label-owner-issue:
+    if: github.repository == 'dodemo/OPENVIDEOMIX' && github.event.issue.user.login == 'dodemo'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Apply the existing agent-ready label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['agent-ready']
+            });
