@@ -41,6 +41,8 @@ pub struct ProjectInputEntry {
     pub volume: f32,
     pub is_muted: bool,
     pub afv: bool,
+    #[serde(default)]
+    pub audio_delay_ms: u32,
 }
 
 /// Versioned, portable project document (.ovmix).
@@ -61,6 +63,8 @@ pub struct ProjectFile {
     pub bus_a: AudioBus,
     pub bus_b: AudioBus,
     pub headphones_bus: AudioBus,
+    #[serde(default)]
+    pub media_players: std::collections::HashMap<InputId, crate::media_source::MediaPlaybackState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midi_profile: Option<MidiProfile>,
 }
@@ -85,6 +89,7 @@ impl ProjectFile {
                 volume: i.volume,
                 is_muted: i.is_muted,
                 afv: i.afv,
+                audio_delay_ms: i.audio_delay_ms,
             })
             .collect();
 
@@ -103,6 +108,7 @@ impl ProjectFile {
             bus_a: state.bus_a.clone(),
             bus_b: state.bus_b.clone(),
             headphones_bus: state.headphones_bus.clone(),
+            media_players: state.media_players.clone(),
             midi_profile,
         }
     }
@@ -135,6 +141,7 @@ impl ProjectFile {
             input.volume = entry.volume;
             input.is_muted = entry.is_muted;
             input.afv = entry.afv;
+            input.audio_delay_ms = entry.audio_delay_ms;
             input.is_online = is_online;
             restored_inputs.push(input);
         }
@@ -159,6 +166,7 @@ impl ProjectFile {
             recording_intent: None,
             is_external_out: false,
             is_safety_locked: false,
+            media_players: self.media_players.clone(),
             fps: 50.0,
             cpu_usage_pct: 0.0,
             dropped_frames: 0,

@@ -82,6 +82,8 @@ pub struct VideoInput {
     pub is_tally_program: bool,
     pub is_tally_preview: bool,
     pub is_overlay_active: bool,
+    #[serde(default)]
+    pub audio_delay_ms: u32,
 }
 
 impl VideoInput {
@@ -101,6 +103,7 @@ impl VideoInput {
             is_tally_program: false,
             is_tally_preview: false,
             is_overlay_active: false,
+            audio_delay_ms: 0,
         }
     }
 }
@@ -124,6 +127,8 @@ pub struct AudioBus {
     pub solo: bool,
     pub peak_l: f32, // 0.0 to 1.0
     pub peak_r: f32, // 0.0 to 1.0
+    #[serde(default)]
+    pub delay_ms: u32,
 }
 
 impl AudioBus {
@@ -135,6 +140,7 @@ impl AudioBus {
             solo: false,
             peak_l: 0.0,
             peak_r: 0.0,
+            delay_ms: 0,
         }
     }
 }
@@ -211,6 +217,8 @@ pub struct MixerState {
     pub is_external_out: bool,
     #[serde(default)]
     pub is_safety_locked: bool,
+    #[serde(default)]
+    pub media_players: std::collections::HashMap<InputId, MediaPlaybackState>,
     pub fps: f32,
     pub cpu_usage_pct: f32,
     pub dropped_frames: u64,
@@ -261,6 +269,12 @@ impl Default for MixerState {
         inputs[0].is_tally_program = true;
         inputs[4].is_tally_preview = true;
 
+        let mut media_players = std::collections::HashMap::new();
+        media_players.insert(
+            4,
+            MediaPlaybackState::new("assets/intro.mp4", 30_000, 1920, 1080, true),
+        );
+
         Self {
             program_input: Some(1),
             preview_input: Some(5),
@@ -281,6 +295,7 @@ impl Default for MixerState {
             recording_intent: None,
             is_external_out: false,
             is_safety_locked: false,
+            media_players,
             fps: 50.0,
             cpu_usage_pct: 2.8,
             dropped_frames: 0,
