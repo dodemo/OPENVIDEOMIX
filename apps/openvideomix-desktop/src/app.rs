@@ -1004,20 +1004,25 @@ impl OpenVideoMixApp {
 
         #[cfg(feature = "gstreamer-recording")]
         {
-            gst_available = true;
-            gst_version = Some(gst::version_string().to_string());
-            for name in &[
-                "videotestsrc",
-                "audiotestsrc",
-                "videoconvert",
-                "vp8enc",
-                "vorbisenc",
-                "webmmux",
-                "appsrc",
-            ] {
-                if gst::ElementFactory::find(name).is_some() {
-                    plugins.push((*name).to_string());
+            if gst::init().is_ok() {
+                gst_available = true;
+                gst_version = Some(gst::version_string().to_string());
+                for name in &[
+                    "videotestsrc",
+                    "audiotestsrc",
+                    "videoconvert",
+                    "vp8enc",
+                    "vorbisenc",
+                    "webmmux",
+                    "appsrc",
+                ] {
+                    if gst::ElementFactory::find(name).is_some() {
+                        plugins.push((*name).to_string());
+                    }
                 }
+            } else {
+                gst_available = false;
+                gst_version = None;
             }
         }
         #[cfg(not(feature = "gstreamer-recording"))]
