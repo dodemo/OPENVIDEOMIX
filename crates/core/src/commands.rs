@@ -81,6 +81,26 @@ pub enum ProductionCommand {
         input: InputId,
         template: TitleData,
     },
+    SetAudioDelay {
+        input: Option<InputId>,
+        delay_ms: u32,
+    },
+    MediaPlay {
+        input: InputId,
+    },
+    MediaPause {
+        input: InputId,
+    },
+    MediaTogglePlay {
+        input: InputId,
+    },
+    MediaSeek {
+        input: InputId,
+        position_ms: u64,
+    },
+    MediaToggleLoop {
+        input: InputId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -93,6 +113,8 @@ pub enum CommandError {
     InvalidOverlayChannel(u8),
     #[error("volume must be a finite number between 0 and 1")]
     InvalidVolume,
+    #[error("audio delay must be between 0 and 2000 ms")]
+    InvalidAudioDelay(u32),
     #[error("there is no preview source to take to Program")]
     NoPreview,
     #[error("recording path must be nonempty and contain no NUL")]
@@ -301,6 +323,63 @@ impl CommandDispatcher {
                     }
                     _ => return Err(CommandError::NotATitleInput(input)),
                 }
+            }
+            ProductionCommand::SetAudioDelay { input, delay_ms } => {
+                if delay_ms > 2000 {
+                    return Err(CommandError::InvalidAudioDelay(delay_ms));
+                }
+                match input {
+                    Some(id) => {
+                        let source = state
+                            .inputs
+                            .iter_mut()
+                            .find(|item| item.id == id)
+                            .ok_or(CommandError::UnknownInput(id))?;
+                        source.audio_delay_ms = delay_ms;
+                    }
+                    None => {
+                        state.master_bus.delay_ms = delay_ms;
+                    }
+                }
+            }
+            ProductionCommand::MediaPlay { input } => {
+                require_input(state, input)?;
+                let player = state.media_players.entry(input).or_insert_with(|| {
+                    crate::media_source::MediaPlaybackState::new("", 0, 1920, 1080, false)
+                });
+                player.play();
+            }
+            ProductionCommand::MediaPause { input } => {
+                require_input(state, input)?;
+                let player = state.media_players.entry(input).or_insert_with(|| {
+                    crate::media_source::MediaPlaybackState::new("", 0, 1920, 1080, false)
+                });
+                player.pause();
+            }
+            ProductionCommand::MediaTogglePlay { input } => {
+                require_input(state, input)?;
+                let player = state.media_players.entry(input).or_insert_with(|| {
+                    crate::media_source::MediaPlaybackState::new("", 0, 1920, 1080, false)
+                });
+                if player.is_playing {
+                    player.pause();
+                } else {
+                    player.play();
+                }
+            }
+            ProductionCommand::MediaSeek { input, position_ms } => {
+                require_input(state, input)?;
+                let player = state.media_players.entry(input).or_insert_with(|| {
+                    crate::media_source::MediaPlaybackState::new("", 0, 1920, 1080, false)
+                });
+                player.seek(position_ms);
+            }
+            ProductionCommand::MediaToggleLoop { input } => {
+                require_input(state, input)?;
+                let player = state.media_players.entry(input).or_insert_with(|| {
+                    crate::media_source::MediaPlaybackState::new("", 0, 1920, 1080, false)
+                });
+                player.toggle_loop();
             }
         }
         self.revision = self.revision.wrapping_add(1);
@@ -780,5 +859,88 @@ mod live_recording_tests {
         let json = serde_json::to_string(&cmd).unwrap();
         let decoded: ProductionCommand = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, cmd);
+    }
+
+    #[test]
+    fn test_audio_delay_and_media_commands() {
+        let mut state = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+
+        // Test SetAudioDelay on Input 1 (CAM 1)
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::SetAudioDelay {
+                    input: Some(1),
+                    delay_ms: 120,
+                },
+            )
+            .unwrap();
+        assert_eq!(state.inputs[0].audio_delay_ms, 120);
+
+        // Test SetAudioDelay on Master bus
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::SetAudioDelay {
+                    input: None,
+                    delay_ms: 80,
+                },
+            )
+            .unwrap();
+        assert_eq!(state.master_bus.delay_ms, 80);
+
+        // Reject excessive delay (> 2000 ms)
+        let err = dispatcher.dispatch(
+            &mut state,
+            ProductionCommand::SetAudioDelay {
+                input: Some(1),
+                delay_ms: 2500,
+            },
+        );
+        assert_eq!(err, Err(CommandError::InvalidAudioDelay(2500)));
+
+        // Test Media transport on Input 4 (Clip)
+        assert_eq!(
+            state.media_players.get(&4).map(|p| p.is_playing),
+            Some(false)
+        );
+        dispatcher
+            .dispatch(&mut state, ProductionCommand::MediaPlay { input: 4 })
+            .unwrap();
+        assert_eq!(
+            state.media_players.get(&4).map(|p| p.is_playing),
+            Some(true)
+        );
+
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::MediaSeek {
+                    input: 4,
+                    position_ms: 15_000,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            state.media_players.get(&4).map(|p| p.position_ms),
+            Some(15_000)
+        );
+
+        dispatcher
+            .dispatch(&mut state, ProductionCommand::MediaTogglePlay { input: 4 })
+            .unwrap();
+        assert_eq!(
+            state.media_players.get(&4).map(|p| p.is_playing),
+            Some(false)
+        );
+
+        dispatcher
+            .dispatch(&mut state, ProductionCommand::MediaToggleLoop { input: 4 })
+            .unwrap();
+        assert_eq!(
+            state.media_players.get(&4).map(|p| p.is_looping),
+            Some(false)
+        );
     }
 }

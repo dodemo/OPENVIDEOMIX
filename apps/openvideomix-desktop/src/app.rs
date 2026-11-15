@@ -17,7 +17,9 @@ use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 use openvideomix_core::midi::{
     MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget,
 };
-use openvideomix_core::{InputId, InputKind, MixerState, TitleData, VideoInput, DEMO_CAMERA_PATH};
+use openvideomix_core::{
+    InputId, InputKind, MixerState, ProjectFile, TitleData, VideoInput, DEMO_CAMERA_PATH,
+};
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
 use std::collections::HashMap;
@@ -153,6 +155,12 @@ pub struct OpenVideoMixApp {
     pub show_title_designer: bool,
     pub selected_title_input: Option<InputId>,
     pub editing_title: TitleData,
+    pub current_project_path: Option<PathBuf>,
+    pub recording_dir: PathBuf,
+    pub recording_filename_prefix: String,
+    pub recording_start_instant: Option<Instant>,
+    pub recording_elapsed_secs: u64,
+    pub show_recording_panel: bool,
     pub show_stop_recording_confirm: bool,
     pub show_close_warning_modal: bool,
     pub force_close_confirmed: bool,
@@ -228,6 +236,14 @@ impl OpenVideoMixApp {
             show_title_designer: false,
             selected_title_input: Some(6),
             editing_title: TitleData::default(),
+            current_project_path: None,
+            recording_dir: std::env::current_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join("recordings"),
+            recording_filename_prefix: "openvideomix_rec".to_string(),
+            recording_start_instant: None,
+            recording_elapsed_secs: 0,
+            show_recording_panel: false,
             show_stop_recording_confirm: false,
             show_close_warning_modal: false,
             force_close_confirmed: false,
@@ -312,6 +328,14 @@ impl OpenVideoMixApp {
             show_title_designer: false,
             selected_title_input: Some(6),
             editing_title: TitleData::default(),
+            current_project_path: None,
+            recording_dir: std::env::current_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join("recordings"),
+            recording_filename_prefix: "openvideomix_rec".to_string(),
+            recording_start_instant: None,
+            recording_elapsed_secs: 0,
+            show_recording_panel: false,
             show_stop_recording_confirm: false,
             show_close_warning_modal: false,
             force_close_confirmed: false,
@@ -352,6 +376,52 @@ impl OpenVideoMixApp {
         if let Err(error) = self.dispatcher.dispatch(&mut self.mixer, command) {
             self.status_notification = Some(format!("Orde rexeitada: {error}"));
         }
+    }
+
+    /// Save mixer and production configuration to .ovmix project document.
+    pub fn save_project_to_path(
+        &mut self,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<(), String> {
+        #[cfg(feature = "midi-input")]
+        let midi_profile = Some(self.midi_mapper.profile.clone());
+        #[cfg(not(feature = "midi-input"))]
+        let midi_profile = None;
+
+        let project = ProjectFile::from_mixer_state(&self.mixer, midi_profile);
+        project
+            .save_atomic(&path)
+            .map_err(|e| format!("Erro ao gardar proxecto: {e}"))?;
+        self.current_project_path = Some(path.as_ref().to_path_buf());
+        self.status_notification = Some(format!(
+            "Proxecto gardado con éxito en: {}",
+            path.as_ref().display()
+        ));
+        Ok(())
+    }
+
+    /// Load and restore mixer configuration from .ovmix project document.
+    pub fn load_project_from_path(
+        &mut self,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<(), String> {
+        let project =
+            ProjectFile::load(&path).map_err(|e| format!("Erro ao cargar proxecto: {e}"))?;
+        let (restored, report) = project.restore_mixer_state();
+        self.mixer = restored;
+        self.current_project_path = Some(path.as_ref().to_path_buf());
+        if !report.missing_inputs.is_empty() {
+            self.status_notification = Some(format!(
+                "Proxecto cargado con {} entrada(s) sen arquivo local (marcadas como offline)",
+                report.missing_inputs.len()
+            ));
+        } else {
+            self.status_notification = Some(format!(
+                "Proxecto cargado con éxito desde: {}",
+                path.as_ref().display()
+            ));
+        }
+        Ok(())
     }
 
     #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
@@ -811,6 +881,29 @@ impl OpenVideoMixApp {
 
         self.animated_tick += 0.05;
 
+        // Advance media clips playback clock
+        let elapsed_ms = (dt * 1000.0) as u64;
+        if elapsed_ms > 0 {
+            for player in self.mixer.media_players.values_mut() {
+                if player.is_playing {
+                    player.advance(elapsed_ms);
+                }
+            }
+        }
+
+        // Track live recording elapsed duration
+        if self.is_recording_or_streaming() {
+            if self.recording_start_instant.is_none() {
+                self.recording_start_instant = Some(now);
+            }
+            if let Some(start) = self.recording_start_instant {
+                self.recording_elapsed_secs = start.elapsed().as_secs();
+            }
+        } else {
+            self.recording_start_instant = None;
+            self.recording_elapsed_secs = 0;
+        }
+
         self.mixer.master_bus.peak_l = 0.0;
         self.mixer.master_bus.peak_r = 0.0;
         for input in &mut self.mixer.inputs {
@@ -1266,7 +1359,11 @@ impl OpenVideoMixApp {
     pub fn is_recording_or_streaming(&self) -> bool {
         let mixer_active = self.mixer.is_recording
             || self.mixer.is_streaming
-            || self.mixer.recording_intent.is_some();
+            || self
+                .mixer
+                .recording_intent
+                .as_ref()
+                .is_some_and(|intent| intent.path.is_some());
         #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
         let prod_active = self
             .production
@@ -1298,6 +1395,19 @@ impl eframe::App for OpenVideoMixApp {
                 self.show_close_warning_modal = true;
             } else {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+        }
+
+        // Quick Save shortcut: Ctrl+S
+        if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, Key::S)) {
+            if let Some(ref path) = self.current_project_path.clone() {
+                let _ = self.save_project_to_path(path);
+            } else if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Proxecto OPENVIDEOMIX (.ovmix)", &["ovmix", "json"])
+                .set_file_name("estudo_directo.ovmix")
+                .save_file()
+            {
+                let _ = self.save_project_to_path(path);
             }
         }
         #[cfg(feature = "local-control-api")]
@@ -1456,6 +1566,19 @@ impl eframe::App for OpenVideoMixApp {
                         .color(Color32::from_rgb(0, 255, 180))
                         .strong(),
                 );
+
+                if self.is_recording_or_streaming() {
+                    ui.separator();
+                    let h = self.recording_elapsed_secs / 3600;
+                    let m = (self.recording_elapsed_secs % 3600) / 60;
+                    let s = self.recording_elapsed_secs % 60;
+                    ui.label(
+                        RichText::new(format!("🔴 REC {h:02}:{m:02}:{s:02}"))
+                            .color(Color32::from_rgb(255, 60, 60))
+                            .strong()
+                            .monospace(),
+                    );
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled(false, egui::Button::new("EMITIR (pendente)"))
@@ -1616,6 +1739,58 @@ impl eframe::App for OpenVideoMixApp {
                         .clicked()
                     {
                         self.show_title_designer = !self.show_title_designer;
+                    }
+
+                    let rec_panel_fill = if self.show_recording_panel {
+                        Color32::from_rgb(180, 40, 40)
+                    } else if self.theme_mode.is_dark() {
+                        Color32::from_rgb(45, 50, 60)
+                    } else {
+                        Color32::from_rgb(215, 222, 230)
+                    };
+                    let rec_panel_btn = egui::Button::new(RichText::new("🔴 GRAVACIÓN").color(
+                        if self.show_recording_panel || self.theme_mode.is_dark() {
+                            Color32::WHITE
+                        } else {
+                            Color32::from_rgb(30, 35, 45)
+                        },
+                    ))
+                    .fill(rec_panel_fill);
+                    if ui
+                        .add(rec_panel_btn)
+                        .on_hover_text("Panel de gravación, disco e cartafol de destino")
+                        .clicked()
+                    {
+                        self.show_recording_panel = !self.show_recording_panel;
+                    }
+
+                    if ui
+                        .button(RichText::new("💾 GARDAR").small())
+                        .on_hover_text("Gardar proxecto (.ovmix) [Atallo: Ctrl+S]")
+                        .clicked()
+                    {
+                        if let Some(ref path) = self.current_project_path.clone() {
+                            let _ = self.save_project_to_path(path);
+                        } else if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Proxecto OPENVIDEOMIX (.ovmix)", &["ovmix", "json"])
+                            .set_file_name("estudo_directo.ovmix")
+                            .save_file()
+                        {
+                            let _ = self.save_project_to_path(path);
+                        }
+                    }
+
+                    if ui
+                        .button(RichText::new("📂 ABRIR").small())
+                        .on_hover_text("Abrir proxecto de estudio (.ovmix)")
+                        .clicked()
+                    {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Proxecto OPENVIDEOMIX (.ovmix)", &["ovmix", "json"])
+                            .pick_file()
+                        {
+                            let _ = self.load_project_from_path(path);
+                        }
                     }
                 });
             });
@@ -2036,6 +2211,9 @@ impl eframe::App for OpenVideoMixApp {
                             let mut action_reorder = None;
                             let mut action_toggle_ov = None;
                             let mut action_open_title_designer = None;
+                            let mut action_media_toggle_play = None;
+                            let mut action_media_toggle_loop = None;
+                            let mut action_media_seek = None;
 
                             for (real_idx, input) in self.mixer.inputs.iter().enumerate() {
                                 // Category filter
@@ -2327,6 +2505,74 @@ impl eframe::App for OpenVideoMixApp {
                                                 }
                                             }
                                         });
+
+                                        // Media Clip Playback Transport
+                                        if matches!(input.kind, InputKind::MediaFile { .. }) {
+                                            if let Some(player) =
+                                                self.mixer.media_players.get(&input.id)
+                                            {
+                                                let is_playing = player.is_playing;
+                                                let is_looping = player.is_looping;
+                                                let pos_s = player.position_ms / 1000;
+                                                let dur_s = player.duration_ms / 1000;
+                                                let pos_str = format!(
+                                                    "{:02}:{:02}/{:02}:{:02}",
+                                                    pos_s / 60,
+                                                    pos_s % 60,
+                                                    dur_s / 60,
+                                                    dur_s % 60
+                                                );
+
+                                                ui.horizontal(|ui| {
+                                                    let play_text =
+                                                        if is_playing { "⏸" } else { "▶" };
+                                                    if ui
+                                                        .button(RichText::new(play_text).small())
+                                                        .on_hover_text("Reproducir / Pausar clip")
+                                                        .clicked()
+                                                    {
+                                                        action_media_toggle_play = Some(input.id);
+                                                    }
+                                                    let loop_col = if is_looping {
+                                                        Color32::from_rgb(0, 200, 180)
+                                                    } else {
+                                                        Color32::GRAY
+                                                    };
+                                                    if ui
+                                                        .button(
+                                                            RichText::new("🔁")
+                                                                .small()
+                                                                .color(loop_col),
+                                                        )
+                                                        .on_hover_text("Conmutar bucle de vídeo")
+                                                        .clicked()
+                                                    {
+                                                        action_media_toggle_loop = Some(input.id);
+                                                    }
+                                                    ui.label(RichText::new(pos_str).small().weak());
+                                                });
+
+                                                let mut progress = if player.duration_ms > 0 {
+                                                    player.position_ms as f32
+                                                        / player.duration_ms as f32
+                                                } else {
+                                                    0.0
+                                                };
+                                                if ui
+                                                    .add(
+                                                        egui::Slider::new(&mut progress, 0.0..=1.0)
+                                                            .show_value(false),
+                                                    )
+                                                    .changed()
+                                                {
+                                                    let target_ms =
+                                                        (progress * player.duration_ms as f32)
+                                                            as u64;
+                                                    action_media_seek =
+                                                        Some((input.id, target_ms));
+                                                }
+                                            }
+                                        }
                                     });
                                 });
                                 ui.add_space(4.0);
@@ -2363,6 +2609,22 @@ impl eframe::App for OpenVideoMixApp {
                                 self.editing_title = template;
                                 self.show_title_designer = true;
                             }
+                            if let Some(id) = action_media_toggle_play {
+                                self.apply_command(ProductionCommand::MediaTogglePlay {
+                                    input: id,
+                                });
+                            }
+                            if let Some(id) = action_media_toggle_loop {
+                                self.apply_command(ProductionCommand::MediaToggleLoop {
+                                    input: id,
+                                });
+                            }
+                            if let Some((id, pos)) = action_media_seek {
+                                self.apply_command(ProductionCommand::MediaSeek {
+                                    input: id,
+                                    position_ms: pos,
+                                });
+                            }
                         });
                     });
                 });
@@ -2385,6 +2647,7 @@ impl eframe::App for OpenVideoMixApp {
                         let mut action_set_vol = None;
                         let mut action_set_mute = None;
                         let mut action_set_afv = None;
+                        let mut action_set_delay = None;
 
                         ui.horizontal(|ui| {
                             ui.heading("Mesturador de Son");
@@ -2461,6 +2724,20 @@ impl eframe::App for OpenVideoMixApp {
                                             {
                                                 action_set_afv = Some((input.id, !input.afv));
                                             }
+
+                                            let mut delay = input.audio_delay_ms;
+                                            if ui
+                                                .add(
+                                                    egui::DragValue::new(&mut delay)
+                                                        .range(0..=1000)
+                                                        .suffix("ms")
+                                                        .speed(5.0),
+                                                )
+                                                .on_hover_text("Retardo de son (Lip Sync en ms)")
+                                                .changed()
+                                            {
+                                                action_set_delay = Some((Some(input.id), delay));
+                                            }
                                         });
                                     });
                                 }
@@ -2509,6 +2786,22 @@ impl eframe::App for OpenVideoMixApp {
                                             self.apply_command(ProductionCommand::SetMasterMute {
                                                 muted: !self.mixer.master_bus.muted,
                                             });
+                                        }
+
+                                        let mut master_delay = self.mixer.master_bus.delay_ms;
+                                        if ui
+                                            .add(
+                                                egui::DragValue::new(&mut master_delay)
+                                                    .range(0..=1000)
+                                                    .suffix("ms")
+                                                    .speed(5.0),
+                                            )
+                                            .on_hover_text(
+                                                "Retardo Master de saída (Lip Sync en ms)",
+                                            )
+                                            .changed()
+                                        {
+                                            action_set_delay = Some((None, master_delay));
                                         }
                                     });
                                 });
@@ -2569,6 +2862,12 @@ impl eframe::App for OpenVideoMixApp {
                             self.apply_command(ProductionCommand::SetInputAfv {
                                 input: id,
                                 enabled,
+                            });
+                        }
+                        if let Some((target, delay)) = action_set_delay {
+                            self.apply_command(ProductionCommand::SetAudioDelay {
+                                input: target,
+                                delay_ms: delay,
                             });
                         }
                     });
@@ -3368,6 +3667,114 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
+        // ADVANCED RECORDING & DISK PANEL WINDOW
+        if self.show_recording_panel {
+            egui::Window::new("🔴 Panel de Gravación e Disco")
+                .collapsible(false)
+                .resizable(true)
+                .default_size([540.0, 420.0])
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Configuración de Gravación de Program");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("✕ Pechar").clicked() {
+                                self.show_recording_panel = false;
+                            }
+                        });
+                    });
+                    ui.separator();
+                    ui.label(
+                        "Grava a saída de Program a 1080p50 continuo sen perda de fotogramas.",
+                    );
+                    ui.add_space(6.0);
+                    ui.separator();
+                    ui.add_space(6.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Cartafol de destino:").strong());
+                        ui.label(self.recording_dir.to_string_lossy().to_string());
+                        if ui.button("📁 Examinar...").clicked() {
+                            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                self.recording_dir = folder;
+                            }
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Prefixo do ficheiro:").strong());
+                        ui.text_edit_singleline(&mut self.recording_filename_prefix);
+                    });
+
+                    let target_filename = format!(
+                        "{}_{}.webm",
+                        self.recording_filename_prefix,
+                        chrono::Local::now().format("%Y%m%d_%H%M%S")
+                    );
+                    ui.label(
+                        RichText::new(format!("Ficheiro seguinte: {target_filename}"))
+                            .weak()
+                            .small(),
+                    );
+
+                    ui.add_space(8.0);
+                    ui.group(|ui| {
+                        ui.heading("📊 Estatísticas e Espazo en Disco");
+                        let is_rec = self.is_recording_or_streaming();
+                        let status_text = if is_rec {
+                            let h = self.recording_elapsed_secs / 3600;
+                            let m = (self.recording_elapsed_secs % 3600) / 60;
+                            let s = self.recording_elapsed_secs % 60;
+                            format!("🔴 GRAVANDO ({h:02}:{m:02}:{s:02})")
+                        } else {
+                            "⚪ DETIDO (Listo para gravar)".to_string()
+                        };
+                        let status_color = if is_rec {
+                            Color32::from_rgb(255, 60, 60)
+                        } else {
+                            Color32::from_rgb(100, 220, 120)
+                        };
+                        ui.label(RichText::new(status_text).color(status_color).strong());
+
+                        ui.label("Taxa de bits obxectivo: ~12 Mbps (1080p50 VP9/WebM)");
+                        ui.label("Espazo estimado por hora: ~5.4 GB / hora");
+                    });
+
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        let is_rec = self.is_recording_or_streaming();
+                        if is_rec {
+                            let can_stop = !self.mixer.is_safety_locked;
+                            let stop_btn = egui::Button::new(
+                                RichText::new("⏹ DETER GRAVACIÓN")
+                                    .color(Color32::from_rgb(255, 100, 100))
+                                    .strong(),
+                            );
+                            if ui
+                                .add_enabled(can_stop, stop_btn)
+                                .on_hover_text("Deter gravación de Program")
+                                .on_disabled_hover_text("🔒 Desbloquea o estudo para deter")
+                                .clicked()
+                            {
+                                self.show_stop_recording_confirm = true;
+                            }
+                        } else {
+                            let start_btn = egui::Button::new(
+                                RichText::new("🔴 INICIAR GRAVACIÓN")
+                                    .color(Color32::from_rgb(0, 220, 180))
+                                    .strong(),
+                            );
+                            if ui.add(start_btn).clicked() {
+                                let path = self.recording_dir.join(&target_filename);
+                                let path_str = path.to_string_lossy().to_string();
+                                self.apply_command(ProductionCommand::StartTestRecording {
+                                    path: path_str,
+                                });
+                            }
+                        }
+                    });
+                });
+        }
+
         #[cfg(feature = "local-control-api")]
         if let Some(remote) = &mut self.remote {
             remote.refresh_snapshot(&self.dispatcher, &self.mixer);
@@ -3717,5 +4124,110 @@ mod gui_command_tests {
                 .unwrap()
                 .is_overlay_active
         );
+    }
+
+    #[test]
+    fn test_audio_delay_lip_sync_gui() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert_eq!(app.mixer.inputs[0].audio_delay_ms, 0);
+        assert_eq!(app.mixer.master_bus.delay_ms, 0);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::SetAudioDelay {
+            input: Some(1),
+            delay_ms: 140,
+        });
+        assert_eq!(app.mixer.inputs[0].audio_delay_ms, 140);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::SetAudioDelay {
+            input: None,
+            delay_ms: 60,
+        });
+        assert_eq!(app.mixer.master_bus.delay_ms, 60);
+    }
+
+    #[test]
+    fn test_media_clip_player_gui() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert!(app.mixer.media_players.contains_key(&4));
+        let player = app.mixer.media_players.get(&4).unwrap();
+        assert!(!player.is_playing);
+        assert!(player.is_looping);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::MediaPlay { input: 4 });
+        assert!(app.mixer.media_players.get(&4).unwrap().is_playing);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::MediaSeek {
+            input: 4,
+            position_ms: 5000,
+        });
+        assert_eq!(app.mixer.media_players.get(&4).unwrap().position_ms, 5000);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::MediaToggleLoop { input: 4 });
+        assert!(!app.mixer.media_players.get(&4).unwrap().is_looping);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::MediaPause { input: 4 });
+        assert!(!app.mixer.media_players.get(&4).unwrap().is_playing);
+    }
+
+    #[test]
+    fn test_project_store_save_and_load() {
+        let mut app = OpenVideoMixApp::new_test();
+        app.mixer.inputs[0].volume = 0.42;
+        app.mixer.inputs[0].audio_delay_ms = 85;
+        app.mixer.master_bus.delay_ms = 35;
+        app.mixer.active_overlays[0] = Some(6);
+
+        let temp_dir = std::env::temp_dir();
+        let project_path = temp_dir.join(format!(
+            "test_project_{}.ovmix",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+
+        let res = app.save_project_to_path(&project_path);
+        assert!(res.is_ok());
+        assert_eq!(app.current_project_path, Some(project_path.clone()));
+
+        let mut app2 = OpenVideoMixApp::new_test();
+        assert_ne!(app2.mixer.inputs[0].volume, 0.42);
+
+        let load_res = app2.load_project_from_path(&project_path);
+        assert!(load_res.is_ok());
+        assert_eq!(app2.mixer.inputs[0].volume, 0.42);
+        assert_eq!(app2.mixer.inputs[0].audio_delay_ms, 85);
+        assert_eq!(app2.mixer.master_bus.delay_ms, 35);
+        assert_eq!(app2.mixer.active_overlays[0], Some(6));
+
+        let _ = std::fs::remove_file(project_path);
+    }
+
+    #[test]
+    fn test_recording_panel_and_timer() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert!(!app.show_recording_panel);
+        app.show_recording_panel = true;
+        assert!(app.show_recording_panel);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::StartTestRecording {
+            path: "test_rec.webm".into(),
+        });
+        assert!(app.is_recording_or_streaming());
+
+        // Verify elapsed duration simulation
+        app.recording_start_instant = Some(Instant::now() - Duration::from_secs(12));
+        app.update_simulation();
+        assert!(app.recording_elapsed_secs >= 12);
+
+        app.gui_time += 1.0;
+        app.apply_command(ProductionCommand::StopRecording);
+        app.update_simulation();
+        assert!(!app.is_recording_or_streaming());
+        assert_eq!(app.recording_elapsed_secs, 0);
     }
 }
