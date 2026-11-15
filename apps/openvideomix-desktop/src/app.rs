@@ -96,7 +96,6 @@ pub struct OpenVideoMixApp {
     pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
     pub last_frame_time: Instant,
     pub animated_tick: f32,
-    #[cfg(target_os = "linux")]
     pub connected_v4l2_devices: Vec<String>,
     pub loaded_textures: HashMap<InputId, TextureHandle>,
     #[cfg(feature = "gstreamer-capture")]
@@ -145,7 +144,6 @@ impl OpenVideoMixApp {
             settings_tab: 0,
             last_frame_time: Instant::now(),
             animated_tick: 0.0,
-            #[cfg(target_os = "linux")]
             connected_v4l2_devices: Vec::new(),
             loaded_textures: HashMap::new(),
             #[cfg(feature = "gstreamer-capture")]
@@ -441,14 +439,16 @@ impl OpenVideoMixApp {
         }
     }
 
-    /// Scan Linux video nodes; do not infer these paths on Windows or macOS.
-    #[cfg(target_os = "linux")]
+    /// Scan Linux video nodes; keep the demo state device-free on other systems.
     pub fn refresh_video_devices(&mut self) {
         self.connected_v4l2_devices.clear();
-        for i in 0..16 {
-            let path = format!("/dev/video{}", i);
-            if std::path::Path::new(&path).exists() {
-                self.connected_v4l2_devices.push(path);
+        #[cfg(target_os = "linux")]
+        {
+            for i in 0..16 {
+                let path = format!("/dev/video{}", i);
+                if std::path::Path::new(&path).exists() {
+                    self.connected_v4l2_devices.push(path);
+                }
             }
         }
     }
@@ -1488,14 +1488,20 @@ impl eframe::App for OpenVideoMixApp {
                                     ui.label("Non se detectaron nodos V4L2 en /dev/video*");
                                 } else {
                                     for dev in &self.connected_v4l2_devices {
-                                        ui.label(format!("Nodo V4L2 dispoñible: {dev} (captura non iniciada)"));
+                                        ui.label(format!(
+                                            "Nodo V4L2 dispoñible: {dev} (captura non iniciada)"
+                                        ));
                                     }
                                 }
                             }
                             #[cfg(not(target_os = "linux"))]
-                            ui.label("As cámaras iniciais son demostracións, non dispositivos físicos detectados.");
+                            ui.label(
+                                "As cámaras iniciais son demostracións, non dispositivos físicos detectados.",
+                            );
                             #[cfg(not(feature = "gstreamer-capture"))]
-                            ui.label("Detección real de cámaras non activada nesta compilación.");
+                            ui.label(
+                                "Detección real de cámaras non activada nesta compilación.",
+                            );
                             #[cfg(feature = "gstreamer-capture")]
                             {
                                 ui.separator();
