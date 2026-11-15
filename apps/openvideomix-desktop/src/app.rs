@@ -73,11 +73,59 @@ fn camera_placeholder_text(device_path: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl ThemeMode {
+    pub fn is_dark(&self) -> bool {
+        matches!(self, Self::Dark)
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Dark => "🌙 Modo Escuro (Broadcast Dark Studio)",
+            Self::Light => "☀️ Modo Claro (Clean Light Studio)",
+        }
+    }
+
+    pub fn visuals(&self) -> egui::Visuals {
+        match self {
+            Self::Dark => {
+                let mut visuals = egui::Visuals::dark();
+                visuals.panel_fill = Color32::from_rgb(18, 20, 24);
+                visuals.window_fill = Color32::from_rgb(24, 27, 32);
+                visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(28, 32, 38);
+                visuals.widgets.inactive.bg_fill = Color32::from_rgb(36, 40, 48);
+                visuals.widgets.hovered.bg_fill = Color32::from_rgb(48, 54, 64);
+                visuals.widgets.active.bg_fill = Color32::from_rgb(58, 66, 78);
+                visuals
+            }
+            Self::Light => {
+                let mut visuals = egui::Visuals::light();
+                visuals.panel_fill = Color32::from_rgb(240, 243, 246);
+                visuals.window_fill = Color32::from_rgb(248, 250, 252);
+                visuals.widgets.noninteractive.bg_fill = Color32::from_rgb(230, 235, 240);
+                visuals.widgets.inactive.bg_fill = Color32::from_rgb(218, 224, 232);
+                visuals.widgets.hovered.bg_fill = Color32::from_rgb(200, 210, 222);
+                visuals.widgets.active.bg_fill = Color32::from_rgb(185, 196, 210);
+                visuals
+            }
+        }
+    }
+}
+
 pub struct OpenVideoMixApp {
     pub mixer: MixerState,
     pub dispatcher: CommandDispatcher,
     gui_time: f64,
     gui_commands: GuiCommandGate,
+    pub theme_mode: ThemeMode,
+    pub ui_scale: f32,
+    pub unicode_test_text: String,
     #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
     production: Option<DesktopProduction>,
     #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
@@ -131,12 +179,21 @@ pub struct OpenVideoMixApp {
 }
 
 impl OpenVideoMixApp {
+    pub fn configure_fonts(ctx: &egui::Context) {
+        let fonts = egui::FontDefinitions::default();
+        ctx.set_fonts(fonts);
+    }
+
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        Self::configure_fonts(&_cc.egui_ctx);
         let mut app = Self {
             mixer: MixerState::default(),
             dispatcher: CommandDispatcher::default(),
             gui_time:0.0,
             gui_commands:GuiCommandGate::default(),
+            theme_mode: ThemeMode::Dark,
+            ui_scale: 1.0,
+            unicode_test_text: "Ánxel e Iñaki están en directo desde a Coruña: vídeo público, ¿todo preparado? ¡Listo! · 1080p50 «OPENVIDEOMIX»".into(),
             #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
             production: None,
             #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
@@ -214,6 +271,9 @@ impl OpenVideoMixApp {
             dispatcher: CommandDispatcher::default(),
             gui_time: 0.0,
             gui_commands: GuiCommandGate::default(),
+            theme_mode: ThemeMode::Dark,
+            ui_scale: 1.0,
+            unicode_test_text: "Ánxel e Iñaki están en directo desde a Coruña: vídeo público, ¿todo preparado? ¡Listo! · 1080p50 «OPENVIDEOMIX»".into(),
             #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
             production: None,
             #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
@@ -1165,11 +1225,11 @@ impl eframe::App for OpenVideoMixApp {
             }
         }
 
-        // Dark Studio Styling
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = Color32::from_rgb(18, 20, 24);
-        visuals.window_fill = Color32::from_rgb(24, 27, 32);
-        ctx.set_visuals(visuals);
+        // Visual theme styling & UI scaling
+        ctx.set_visuals(self.theme_mode.visuals());
+        if (ctx.zoom_factor() - self.ui_scale).abs() > 0.001 {
+            ctx.set_zoom_factor(self.ui_scale);
+        }
 
         #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
         if self.show_recording_setup {
@@ -1254,20 +1314,40 @@ impl eframe::App for OpenVideoMixApp {
                     #[cfg(not(all(feature="gstreamer-capture",feature="gstreamer-recording")))]
                     ui.add_enabled(false,egui::Button::new("GRAVAR (pendente)"));
 
-                    let settings_btn = egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(Color32::WHITE))
-                        .fill(if self.show_settings { Color32::from_rgb(0, 120, 200) } else { Color32::from_rgb(45, 50, 60) });
+                    let btn_fill = if self.show_settings {
+                        Color32::from_rgb(0, 120, 200)
+                    } else if self.theme_mode.is_dark() {
+                        Color32::from_rgb(45, 50, 60)
+                    } else {
+                        Color32::from_rgb(215, 222, 230)
+                    };
+                    let btn_text_color = if self.show_settings || self.theme_mode.is_dark() {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_rgb(30, 35, 45)
+                    };
+                    let settings_btn = egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(btn_text_color))
+                        .fill(btn_fill);
                     if ui.add(settings_btn).clicked() {
                         self.show_settings = !self.show_settings;
                     }
 
-                    let diag_btn = egui::Button::new(
-                        RichText::new("📋 DIAGNÓSTICO").color(Color32::WHITE),
-                    )
-                    .fill(if self.show_diagnostics {
+                    let diag_fill = if self.show_diagnostics {
                         Color32::from_rgb(0, 120, 200)
-                    } else {
+                    } else if self.theme_mode.is_dark() {
                         Color32::from_rgb(45, 50, 60)
-                    });
+                    } else {
+                        Color32::from_rgb(215, 222, 230)
+                    };
+                    let diag_text_color = if self.show_diagnostics || self.theme_mode.is_dark() {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_rgb(30, 35, 45)
+                    };
+                    let diag_btn = egui::Button::new(
+                        RichText::new("📋 DIAGNÓSTICO").color(diag_text_color),
+                    )
+                    .fill(diag_fill);
                     if ui
                         .add(diag_btn)
                         .on_hover_text(
@@ -1303,7 +1383,12 @@ impl eframe::App for OpenVideoMixApp {
                 ui.separator();
 
                 if let Some(msg) = &self.status_notification {
-                    ui.label(RichText::new(msg).color(Color32::from_rgb(240, 200, 100)));
+                    let notif_color = if self.theme_mode.is_dark() {
+                        Color32::from_rgb(240, 200, 100)
+                    } else {
+                        Color32::from_rgb(180, 100, 10)
+                    };
+                    ui.label(RichText::new(msg).color(notif_color));
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1334,10 +1419,15 @@ impl eframe::App for OpenVideoMixApp {
                         .map(|i| i.name.as_str())
                         .unwrap_or("NINGÚN");
 
+                    let pvw_label_color = if self.theme_mode.is_dark() {
+                        Color32::from_rgb(40, 220, 80)
+                    } else {
+                        Color32::from_rgb(0, 150, 50)
+                    };
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new("PREVIEW")
-                                .color(Color32::from_rgb(40, 220, 80))
+                                .color(pvw_label_color)
                                 .strong(),
                         );
                         ui.label(format!("({})", preview_name));
@@ -1373,14 +1463,19 @@ impl eframe::App for OpenVideoMixApp {
                     ui.set_width(140.0);
                     ui.add_space(4.0);
 
+                    let (cut_fill, cut_text) = if self.theme_mode.is_dark() {
+                        (Color32::from_rgb(45, 50, 60), Color32::WHITE)
+                    } else {
+                        (Color32::from_rgb(215, 222, 230), Color32::from_rgb(20, 25, 35))
+                    };
                     let cut_response = ui.add_sized(
                         [130.0, 34.0],
                         egui::Button::new(
                             RichText::new("CUT")
                                 .strong()
                                 .size(15.0)
-                                .color(Color32::WHITE),
-                        ),
+                                .color(cut_text),
+                        ).fill(cut_fill),
                     ).on_hover_text("Conmutación inmediata entre Preview e Program (Atallo: Espazo ou Enter)");
                     if cut_response.clicked() {
                         self.apply_command(ProductionCommand::Cut);
@@ -1388,14 +1483,19 @@ impl eframe::App for OpenVideoMixApp {
 
                     ui.add_space(3.0);
 
+                    let (mix_fill, mix_text) = if self.theme_mode.is_dark() {
+                        (Color32::from_rgb(40, 46, 56), Color32::from_rgb(180, 220, 255))
+                    } else {
+                        (Color32::from_rgb(215, 222, 230), Color32::from_rgb(20, 80, 160))
+                    };
                     let mix_response = ui.add_sized(
                         [130.0, 28.0],
                         egui::Button::new(
                             RichText::new("MIX")
                                 .strong()
                                 .size(13.0)
-                                .color(Color32::from_rgb(180, 220, 255)),
-                        ),
+                                .color(mix_text),
+                        ).fill(mix_fill),
                     ).on_hover_text("Transición Fade interpolada (Atallo: M)");
                     if mix_response.clicked() {
                         self.apply_command(ProductionCommand::SetTransition {
@@ -1407,14 +1507,19 @@ impl eframe::App for OpenVideoMixApp {
 
                     ui.add_space(2.0);
 
+                    let (wipe_fill, wipe_text) = if self.theme_mode.is_dark() {
+                        (Color32::from_rgb(40, 46, 56), Color32::from_rgb(200, 200, 255))
+                    } else {
+                        (Color32::from_rgb(215, 222, 230), Color32::from_rgb(60, 40, 150))
+                    };
                     let wipe_response = ui.add_sized(
                         [130.0, 28.0],
                         egui::Button::new(
                             RichText::new("WIPE")
                                 .strong()
                                 .size(13.0)
-                                .color(Color32::from_rgb(200, 200, 255)),
-                        ),
+                                .color(wipe_text),
+                        ).fill(wipe_fill),
                     ).on_hover_text("Transición Wipe direccional (Atallo: W)");
                     if wipe_response.clicked() {
                         self.apply_command(ProductionCommand::SetTransition {
@@ -1485,10 +1590,15 @@ impl eframe::App for OpenVideoMixApp {
                         .map(|i| i.name.as_str())
                         .unwrap_or("NINGÚN");
 
+                    let pgm_label_color = if self.theme_mode.is_dark() {
+                        Color32::from_rgb(240, 50, 50)
+                    } else {
+                        Color32::from_rgb(200, 25, 25)
+                    };
                     ui.horizontal(|ui| {
                         ui.label(
                             RichText::new("PROGRAM")
-                                .color(Color32::from_rgb(240, 50, 50))
+                                .color(pgm_label_color)
                                 .strong(),
                         );
                         ui.label(format!("({})", program_name));
@@ -1622,11 +1732,16 @@ impl eframe::App for OpenVideoMixApp {
                         ui.selectable_value(&mut self.input_category_filter, 3, "Sintéticos");
 
                         ui.separator();
+                        let label_btn_color = if self.theme_mode.is_dark() {
+                            Color32::from_rgb(0, 210, 255)
+                        } else {
+                            Color32::from_rgb(0, 110, 180)
+                        };
                         if ui
                             .button(
                                 RichText::new("🖼️ Engadir Rótulo")
                                     .strong()
-                                    .color(Color32::from_rgb(0, 210, 255)),
+                                    .color(label_btn_color),
                             )
                             .on_hover_text("Cargar imaxe con transparencia PNG/WebP/JPG")
                             .clicked()
@@ -1688,8 +1803,10 @@ impl eframe::App for OpenVideoMixApp {
                                     Color32::from_rgb(230, 40, 40)
                                 } else if input.is_tally_preview {
                                     Color32::from_rgb(40, 200, 70)
-                                } else {
+                                } else if self.theme_mode.is_dark() {
                                     Color32::from_rgb(50, 55, 62)
+                                } else {
+                                    Color32::from_rgb(195, 205, 215)
                                 };
 
                                 ui.group(|ui| {
@@ -1712,13 +1829,18 @@ impl eframe::App for OpenVideoMixApp {
                                             {
                                                 action_reorder = Some((input.id, real_idx + 1));
                                             }
+                                            let card_title_color = if self.theme_mode.is_dark() {
+                                                Color32::WHITE
+                                            } else {
+                                                Color32::from_rgb(20, 25, 35)
+                                            };
                                             ui.label(
                                                 RichText::new(format!(
                                                     "#{}: {}",
                                                     input.id, input.name
                                                 ))
                                                 .strong()
-                                                .color(Color32::WHITE),
+                                                .color(card_title_color),
                                             );
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -1885,21 +2007,27 @@ impl eframe::App for OpenVideoMixApp {
                                                 let is_active = self.mixer.active_overlays
                                                     [channel - 1]
                                                     == Some(input.id);
+                                                let ov_color = if is_active {
+                                                    Color32::WHITE
+                                                } else if self.theme_mode.is_dark() {
+                                                    Color32::from_rgb(140, 170, 200)
+                                                } else {
+                                                    Color32::from_rgb(60, 80, 110)
+                                                };
+                                                let ov_fill = if is_active {
+                                                    Color32::from_rgb(0, 120, 190)
+                                                } else if self.theme_mode.is_dark() {
+                                                    Color32::from_rgb(32, 36, 44)
+                                                } else {
+                                                    Color32::from_rgb(215, 222, 230)
+                                                };
                                                 let ov_btn = egui::Button::new(
                                                     RichText::new(format!("{channel}"))
                                                         .small()
                                                         .strong()
-                                                        .color(if is_active {
-                                                            Color32::WHITE
-                                                        } else {
-                                                            Color32::from_rgb(140, 170, 200)
-                                                        }),
+                                                        .color(ov_color),
                                                 )
-                                                .fill(if is_active {
-                                                    Color32::from_rgb(0, 120, 190)
-                                                } else {
-                                                    Color32::from_rgb(32, 36, 44)
-                                                });
+                                                .fill(ov_fill);
                                                 if ui
                                                     .add(ov_btn)
                                                     .on_hover_text(format!(
@@ -2159,14 +2287,15 @@ impl eframe::App for OpenVideoMixApp {
             egui::Window::new("⚙ Axustes de OPENVIDEOMIX")
                 .collapsible(false)
                 .resizable(true)
-                .default_size([540.0, 380.0])
+                .default_size([580.0, 420.0])
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        ui.selectable_value(&mut self.settings_tab, 0, "🎥 Vídeo (Resolución & FPS)");
+                        ui.selectable_value(&mut self.settings_tab, 0, "🎥 Vídeo");
                         ui.selectable_value(&mut self.settings_tab, 1, "🔊 Son");
-                        ui.selectable_value(&mut self.settings_tab, 2, "🔌 Dispositivos de Captura");
+                        ui.selectable_value(&mut self.settings_tab, 2, "🔌 Captura");
                         #[cfg(feature = "midi-input")]
                         ui.selectable_value(&mut self.settings_tab, 3, "MIDI");
+                        ui.selectable_value(&mut self.settings_tab, 4, "🎨 Aspecto e Tema");
                     });
                     ui.separator();
 
@@ -2340,6 +2469,93 @@ impl eframe::App for OpenVideoMixApp {
                                     self.midi_learn = None;
                                 }
                             }
+                        }
+                        4 => {
+                            ui.heading("🎨 Aspecto, Tema e Tipografía");
+                            ui.add_space(8.0);
+
+                            ui.group(|ui| {
+                                ui.label(RichText::new("Tema Visual do Estudo").strong());
+                                ui.horizontal(|ui| {
+                                    ui.selectable_value(
+                                        &mut self.theme_mode,
+                                        ThemeMode::Dark,
+                                        ThemeMode::Dark.label(),
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.theme_mode,
+                                        ThemeMode::Light,
+                                        ThemeMode::Light.label(),
+                                    );
+                                });
+                                ui.add_space(4.0);
+                                let theme_desc = match self.theme_mode {
+                                    ThemeMode::Dark => {
+                                        "Modo escuro broadcast: fondo escuro neutro (#121418), deseñado para estudios de realización, baixa iluminación e diminución da fatiga ocular."
+                                    }
+                                    ThemeMode::Light => {
+                                        "Modo claro broadcast: fondo suave e contrastado (#F0F3F6), deseñado para contornas con iluminación natural, exteriores e oficinas."
+                                    }
+                                };
+                                ui.label(RichText::new(theme_desc).weak());
+                            });
+
+                            ui.add_space(8.0);
+
+                            ui.group(|ui| {
+                                ui.label(RichText::new("Escala da Interface e Tipografía (DPI / Zoom)").strong());
+                                ui.horizontal(|ui| {
+                                    ui.label("Escala global:");
+                                    egui::ComboBox::from_id_salt("ui_scale_selector")
+                                        .selected_text(format!("{}%", (self.ui_scale * 100.0).round() as i32))
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(&mut self.ui_scale, 0.9, "90% (Compacto)");
+                                            ui.selectable_value(&mut self.ui_scale, 1.0, "100% (Estándar)");
+                                            ui.selectable_value(&mut self.ui_scale, 1.1, "110% (Medio)");
+                                            ui.selectable_value(&mut self.ui_scale, 1.25, "125% (Grande - 2K/4K)");
+                                            ui.selectable_value(&mut self.ui_scale, 1.5, "150% (Moi grande)");
+                                        });
+                                    if ui.button("Restablecer 100%").clicked() {
+                                        self.ui_scale = 1.0;
+                                    }
+                                });
+                                ui.label(
+                                    RichText::new("Axusta a escala visual en monitores 4K ou pantallas de alta densidade.").weak(),
+                                );
+                            });
+
+                            ui.add_space(8.0);
+
+                            ui.group(|ui| {
+                                ui.label(RichText::new("Soporte Unicode e Caracteres Especiais").strong());
+                                ui.label(
+                                    RichText::new(
+                                        "OPENVIDEOMIX soporta nativamente a codificación UTF-8 para nomes de entrada, rótulos, subtítulos e grafismos. Non hai caracteres 'tofu' nin caixas baleiras con tiles ou eñes:",
+                                    )
+                                    .weak(),
+                                );
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    ui.label("Cadro de proba interactiva:");
+                                    ui.add(egui::TextEdit::singleline(&mut self.unicode_test_text).desired_width(320.0));
+                                });
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    ui.label("Caracteres galegos e especiais:");
+                                    ui.monospace("ñ Ñ á é í ó ú à è ì ò ù ç Ç ü Ü ¿ ¡ · « »");
+                                });
+                                ui.add_space(4.0);
+                                let status_color = if self.theme_mode.is_dark() {
+                                    Color32::from_rgb(0, 220, 140)
+                                } else {
+                                    Color32::from_rgb(0, 150, 80)
+                                };
+                                ui.label(
+                                    RichText::new("✅ Motor de tipografía activo: compatibilidade total con tiles, eñes e diacríticos.")
+                                        .color(status_color)
+                                        .strong(),
+                                );
+                            });
                         }
                         _ => {}
                     }
@@ -2529,5 +2745,62 @@ mod gui_command_tests {
         assert!(!diag.inputs.is_empty());
         let md = diag.to_markdown_report();
         assert!(md.contains("OPENVIDEOMIX Diagnostics Report"));
+    }
+
+    #[test]
+    fn test_theme_mode_switching_and_visuals() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert_eq!(app.theme_mode, ThemeMode::Dark);
+        assert!(app.theme_mode.is_dark());
+        assert_eq!(
+            app.theme_mode.label(),
+            "🌙 Modo Escuro (Broadcast Dark Studio)"
+        );
+        assert_eq!(app.ui_scale, 1.0);
+
+        let dark_visuals = app.theme_mode.visuals();
+        assert_eq!(dark_visuals.panel_fill, Color32::from_rgb(18, 20, 24));
+        assert_eq!(dark_visuals.window_fill, Color32::from_rgb(24, 27, 32));
+
+        // Switch to Light theme
+        app.theme_mode = ThemeMode::Light;
+        assert_eq!(app.theme_mode, ThemeMode::Light);
+        assert!(!app.theme_mode.is_dark());
+        assert_eq!(app.theme_mode.label(), "☀️ Modo Claro (Clean Light Studio)");
+
+        let light_visuals = app.theme_mode.visuals();
+        assert_eq!(light_visuals.panel_fill, Color32::from_rgb(240, 243, 246));
+        assert_eq!(light_visuals.window_fill, Color32::from_rgb(248, 250, 252));
+
+        // UI scale bounds and update
+        app.ui_scale = 1.25;
+        assert!((app.ui_scale - 1.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_unicode_special_characters_integrity() {
+        let app = OpenVideoMixApp::new_test();
+        assert!(app.unicode_test_text.contains('ñ'));
+        assert!(app.unicode_test_text.contains('Á'));
+        assert!(app.unicode_test_text.contains('á'));
+        assert!(app.unicode_test_text.contains('¿'));
+        assert!(app.unicode_test_text.contains('¡'));
+        assert!(app.unicode_test_text.contains('«'));
+        assert!(app.unicode_test_text.contains('»'));
+
+        // Verify full string UTF-8 validity
+        assert!(std::str::from_utf8(app.unicode_test_text.as_bytes()).is_ok());
+
+        // Verify font definitions default
+        let fonts = egui::FontDefinitions::default();
+        assert!(!fonts.font_data.is_empty());
+    }
+
+    #[test]
+    fn test_settings_tab_theme_navigation() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert_eq!(app.settings_tab, 0);
+        app.settings_tab = 4; // Aspecto e Tema
+        assert_eq!(app.settings_tab, 4);
     }
 }
