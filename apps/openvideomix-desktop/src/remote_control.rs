@@ -16,7 +16,7 @@ use axum::{
     Json, Router,
 };
 use openvideomix_core::commands::{CommandDispatcher, ProductionCommand, ProductionSnapshot};
-use openvideomix_core::MixerState;
+use openvideomix_core::{InputId, MixerState};
 use serde::Serialize;
 use subtle::ConstantTimeEq;
 use tokio::sync::oneshot;
@@ -71,6 +71,39 @@ fn authenticate(headers: &HeaderMap, token: &str) -> Result<(), HttpError> {
         return Err(deny(StatusCode::UNAUTHORIZED, "Invalid bearer token"));
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StatusResponse {
+    pub status: &'static str,
+    pub app: &'static str,
+    pub version: &'static str,
+    pub revision: u64,
+    pub program: Option<InputId>,
+    pub preview: Option<InputId>,
+    pub overlay1: Option<InputId>,
+    pub master_muted: bool,
+}
+
+async fn get_status(
+    State(state): State<Arc<ServerState>>,
+    headers: HeaderMap,
+) -> Result<Json<StatusResponse>, HttpError> {
+    authenticate(&headers, &state.token)?;
+    let snapshot = state
+        .snapshot
+        .read()
+        .map_err(|_| deny(StatusCode::SERVICE_UNAVAILABLE, "State unavailable"))?;
+    Ok(Json(StatusResponse {
+        status: "ok",
+        app: "OPENVIDEOMIX",
+        version: env!("CARGO_PKG_VERSION"),
+        revision: snapshot.revision,
+        program: snapshot.program,
+        preview: snapshot.preview,
+        overlay1: snapshot.overlay1,
+        master_muted: snapshot.master_muted,
+    }))
 }
 
 async fn get_state(
@@ -161,6 +194,7 @@ impl RemoteControl {
                     }
                 };
                 let router = Router::new()
+                    .route("/v1/status", get(get_status))
                     .route("/v1/state", get(get_state))
                     .route("/v1/command", post(post_command))
                     .layer(DefaultBodyLimit::max(8192))
@@ -242,10 +276,36 @@ mod tests {
             snapshot: Arc::new(RwLock::new(ProductionSnapshot::from_state(0, &mixer))),
         });
         let app = Router::new()
+            .route("/v1/status", get(get_status))
             .route("/v1/state", get(get_state))
             .route("/v1/command", post(post_command))
             .layer(DefaultBodyLimit::max(8192))
             .with_state(server);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/v1/status")
+                    .header(header::AUTHORIZATION, format!("Bearer {}", "a".repeat(32)))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
 
         let response = app
             .clone()
