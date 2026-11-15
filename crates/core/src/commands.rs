@@ -4,7 +4,7 @@
 //! Network transport and authorization are deliberately out of scope here:
 //! callers must authenticate and authorize **before** invoking dispatch.
 
-use crate::{InputId, MixerState};
+use crate::{InputId, MixerState, TitleData};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -77,12 +77,18 @@ pub enum ProductionCommand {
         input: InputId,
         target_index: usize,
     },
+    UpdateTitle {
+        input: InputId,
+        template: TitleData,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum CommandError {
     #[error("input {0} does not exist")]
     UnknownInput(InputId),
+    #[error("input {0} is not a title input")]
+    NotATitleInput(InputId),
     #[error("overlay channel {0} must be between 1 and 4")]
     InvalidOverlayChannel(u8),
     #[error("volume must be a finite number between 0 and 1")]
@@ -282,6 +288,21 @@ impl CommandDispatcher {
             } => {
                 require_input(state, input)?;
                 state.reorder_input(input, target_index);
+            }
+            ProductionCommand::UpdateTitle { input, template } => {
+                let source = state
+                    .inputs
+                    .iter_mut()
+                    .find(|item| item.id == input)
+                    .ok_or(CommandError::UnknownInput(input))?;
+                match &mut source.kind {
+                    crate::InputKind::Title {
+                        template: current,
+                    } => {
+                        *current = template;
+                    }
+                    _ => return Err(CommandError::NotATitleInput(input)),
+                }
             }
         }
         self.revision = self.revision.wrapping_add(1);
@@ -708,5 +729,57 @@ mod live_recording_tests {
         let json_set = serde_json::to_string(&cmd_set).unwrap();
         let decoded_set: ProductionCommand = serde_json::from_str(&json_set).unwrap();
         assert_eq!(decoded_set, cmd_set);
+    }
+
+    #[test]
+    fn test_update_title_command() {
+        let mut state = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+
+        // Input 6 is the default Title input
+        assert_eq!(state.inputs[5].id, 6);
+        assert!(matches!(state.inputs[5].kind, crate::InputKind::Title { .. }));
+
+        let updated_title = TitleData::preset_speaker(
+            "Iñaki López",
+            "Presentador · Directo Coruña",
+        );
+
+        let snap = dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::UpdateTitle {
+                    input: 6,
+                    template: updated_title.clone(),
+                },
+            )
+            .unwrap();
+
+        assert_eq!(snap.revision, 1);
+        if let crate::InputKind::Title { template } = &state.inputs[5].kind {
+            assert_eq!(template.headline, "Iñaki López");
+            assert_eq!(template.subtitle, "Presentador · Directo Coruña");
+        } else {
+            panic!("Expected Title input kind");
+        }
+
+        // Updating a non-title input must fail with NotATitleInput
+        let err = dispatcher.dispatch(
+            &mut state,
+            ProductionCommand::UpdateTitle {
+                input: 1, // CAM 1
+                template: updated_title.clone(),
+            },
+        );
+        assert_eq!(err, Err(CommandError::NotATitleInput(1)));
+
+        // Serde roundtrip for UpdateTitle
+        let cmd = ProductionCommand::UpdateTitle {
+            input: 6,
+            template: updated_title,
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let decoded: ProductionCommand = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, cmd);
     }
 }

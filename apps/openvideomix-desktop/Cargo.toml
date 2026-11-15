@@ -19,13 +19,13 @@ tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true
-serde_json = { workspace = true, optional = true }
+serde_json.workspace = true
 
 [features]
 default = []
 gstreamer-recording = ["dep:gstreamer", "dep:gstreamer-app"]
 local-control-api = ["dep:axum", "dep:serde", "dep:subtle"]
-midi-input = ["dep:midir", "dep:serde_json"]
+midi-input = ["dep:midir"]
 gstreamer-capture = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-video"]
 
 [dependencies.axum]
