@@ -29,6 +29,14 @@ pub enum ProductionCommand {
         device: Option<String>,
     },
     StopRecording,
+    ToggleOverlay {
+        channel: u8,
+        input: InputId,
+    },
+    SetOverlay {
+        channel: u8,
+        input: Option<InputId>,
+    },
     ToggleOverlay1 {
         input: InputId,
     },
@@ -59,6 +67,8 @@ pub enum ProductionCommand {
 pub enum CommandError {
     #[error("input {0} does not exist")]
     UnknownInput(InputId),
+    #[error("overlay channel {0} must be between 1 and 4")]
+    InvalidOverlayChannel(u8),
     #[error("volume must be a finite number between 0 and 1")]
     InvalidVolume,
     #[error("there is no preview source to take to Program")]
@@ -75,6 +85,8 @@ pub struct ProductionSnapshot {
     pub program: Option<InputId>,
     pub preview: Option<InputId>,
     pub overlay1: Option<InputId>,
+    #[serde(default)]
+    pub overlays: [Option<InputId>; 4],
     pub master_volume: f32,
     pub master_muted: bool,
 }
@@ -86,6 +98,7 @@ impl ProductionSnapshot {
             program: mixer.program_input,
             preview: mixer.preview_input,
             overlay1: mixer.active_overlay_1,
+            overlays: mixer.active_overlays,
             master_volume: mixer.master_bus.volume,
             master_muted: mixer.master_bus.muted,
         }
@@ -164,6 +177,22 @@ impl CommandDispatcher {
                 require_input(state, input)?;
                 state.cut();
             }
+            ProductionCommand::ToggleOverlay { channel, input } => {
+                if !(1..=4).contains(&channel) {
+                    return Err(CommandError::InvalidOverlayChannel(channel));
+                }
+                require_input(state, input)?;
+                let _ = state.toggle_overlay(channel, input);
+            }
+            ProductionCommand::SetOverlay { channel, input } => {
+                if !(1..=4).contains(&channel) {
+                    return Err(CommandError::InvalidOverlayChannel(channel));
+                }
+                if let Some(input) = input {
+                    require_input(state, input)?;
+                }
+                let _ = state.set_overlay(channel, input);
+            }
             ProductionCommand::ToggleOverlay1 { input } => {
                 require_input(state, input)?;
                 state.toggle_overlay_1(input);
@@ -172,8 +201,7 @@ impl CommandDispatcher {
                 if let Some(input) = input {
                     require_input(state, input)?;
                 }
-                state.active_overlay_1 = input;
-                state.update_tally_flags();
+                let _ = state.set_overlay(1, input);
             }
             ProductionCommand::SetInputVolume { input, volume } => {
                 check_volume(volume)?;
@@ -347,6 +375,67 @@ mod tests {
         assert_eq!(encoded, r#"{"action":"select_preview","args":{"input":3}}"#);
         let decoded: ProductionCommand = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, command);
+    }
+
+    #[test]
+    fn four_overlays_toggle_independently_and_persist_in_snapshot() {
+        let mut state = MixerState::default();
+        let mut dispatcher = CommandDispatcher::default();
+
+        // Toggle OV1 with input 1, OV2 with input 2, OV3 with input 3, OV4 with input 4
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::ToggleOverlay { channel: 1, input: 1 },
+            )
+            .unwrap();
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::ToggleOverlay { channel: 2, input: 2 },
+            )
+            .unwrap();
+        dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::ToggleOverlay { channel: 3, input: 3 },
+            )
+            .unwrap();
+        let snapshot = dispatcher
+            .dispatch(
+                &mut state,
+                ProductionCommand::ToggleOverlay { channel: 4, input: 4 },
+            )
+            .unwrap();
+
+        assert_eq!(snapshot.overlay1, Some(1));
+        assert_eq!(snapshot.overlays, [Some(1), Some(2), Some(3), Some(4)]);
+
+        // Cut background should preserve all active overlays
+        let cut_snapshot = dispatcher
+            .dispatch(&mut state, ProductionCommand::Cut)
+            .unwrap();
+        assert_eq!(cut_snapshot.overlays, [Some(1), Some(2), Some(3), Some(4)]);
+
+        // Removing input 2 clears only overlay channel 2
+        state.remove_input(2);
+        assert_eq!(state.active_overlays, [Some(1), None, Some(3), Some(4)]);
+
+        // Invalid channels are rejected
+        assert_eq!(
+            dispatcher.dispatch(
+                &mut state,
+                ProductionCommand::ToggleOverlay { channel: 0, input: 1 }
+            ),
+            Err(CommandError::InvalidOverlayChannel(0))
+        );
+        assert_eq!(
+            dispatcher.dispatch(
+                &mut state,
+                ProductionCommand::ToggleOverlay { channel: 5, input: 1 }
+            ),
+            Err(CommandError::InvalidOverlayChannel(5))
+        );
     }
 }
 
