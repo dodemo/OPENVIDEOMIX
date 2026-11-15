@@ -18,6 +18,11 @@ pub mod midi;
 pub mod vmix_compat;
 
 pub use audio_graph::{AudioDriftStats, AudioGraph, AudioMeterState, ChannelRouting};
+pub use midi::{
+    device_support_matrix, mingzhe_b0fv93gs5z_candidate_preset, MidiBinding,
+    MidiDeviceSupportEntry, MidiEvent, MidiLearnSession, MidiMapper, MidiProfile, MidiSource,
+    MidiTarget, TakeoverMode,
+};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
