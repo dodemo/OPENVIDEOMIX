@@ -342,7 +342,14 @@ mod tests {
         for y in 0..4 {
             for x in 0..4 {
                 let p = pixel(&wipe_rl, y * 4 + x);
-                assert_eq!(p, if x >= 2 { [0, 0, 255, 255] } else { [255, 0, 0, 255] });
+                assert_eq!(
+                    p,
+                    if x >= 2 {
+                        [0, 0, 255, 255]
+                    } else {
+                        [255, 0, 0, 255]
+                    }
+                );
             }
         }
 
@@ -351,7 +358,14 @@ mod tests {
         for y in 0..4 {
             for x in 0..4 {
                 let p = pixel(&wipe_tb, y * 4 + x);
-                assert_eq!(p, if y < 2 { [0, 0, 255, 255] } else { [255, 0, 0, 255] });
+                assert_eq!(
+                    p,
+                    if y < 2 {
+                        [0, 0, 255, 255]
+                    } else {
+                        [255, 0, 0, 255]
+                    }
+                );
             }
         }
 
@@ -360,7 +374,14 @@ mod tests {
         for y in 0..4 {
             for x in 0..4 {
                 let p = pixel(&wipe_bt, y * 4 + x);
-                assert_eq!(p, if y >= 2 { [0, 0, 255, 255] } else { [255, 0, 0, 255] });
+                assert_eq!(
+                    p,
+                    if y >= 2 {
+                        [0, 0, 255, 255]
+                    } else {
+                        [255, 0, 0, 255]
+                    }
+                );
             }
         }
     }
