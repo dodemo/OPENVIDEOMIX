@@ -384,7 +384,11 @@ impl OpenVideoMixApp {
         path: impl AsRef<std::path::Path>,
     ) -> Result<(), String> {
         #[cfg(feature = "midi-input")]
-        let midi_profile = Some(self.midi_mapper.profile.clone());
+        let midi_profile = Some(openvideomix_core::midi::MidiProfile {
+            schema_version: 1,
+            name: "Current Profile".into(),
+            bindings: self.midi_mapper.bindings.clone(),
+        });
         #[cfg(not(feature = "midi-input"))]
         let midi_profile = None;
 
