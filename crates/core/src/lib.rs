@@ -354,7 +354,7 @@ impl MixerState {
         for input in &mut self.inputs {
             input.is_tally_program = self.program_input == Some(input.id);
             input.is_tally_preview = self.preview_input == Some(input.id);
-            input.is_overlay_active = self.active_overlays.iter().any(|o| *o == Some(input.id));
+            input.is_overlay_active = self.active_overlays.contains(&Some(input.id));
         }
     }
 
