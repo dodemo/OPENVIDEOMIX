@@ -124,11 +124,9 @@ impl ProjectFile {
                         missing_inputs.push(entry.id);
                     }
                 }
-                InputKind::Camera { device_path } => {
-                    if device_path == DEMO_CAMERA_PATH {
-                        // Demo cameras stay online as synthetic generators
-                        is_online = true;
-                    }
+                InputKind::Camera { device_path } if device_path == DEMO_CAMERA_PATH => {
+                    // Demo cameras stay online as synthetic generators
+                    is_online = true;
                 }
                 _ => {}
             }
