@@ -145,6 +145,7 @@ impl ProjectFile {
             active_overlay_1: self.active_overlays[0],
             active_overlays: self.active_overlays,
             overlay_opacity: 1.0,
+            is_fade_to_black: false,
             active_transition: self.active_transition,
             transition_duration_ms: self.transition_duration_ms,
             tbar_position: 0.0,

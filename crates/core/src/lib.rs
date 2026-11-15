@@ -182,6 +182,8 @@ pub struct MixerState {
     #[serde(default)]
     pub active_overlays: [Option<InputId>; 4],
     pub overlay_opacity: f32, // 0.0 to 1.0
+    #[serde(default)]
+    pub is_fade_to_black: bool,
     pub active_transition: TransitionType,
     pub transition_duration_ms: u32,
     pub tbar_position: f32, // 0.0 (Preview) to 1.0 (Program)
@@ -244,6 +246,7 @@ impl Default for MixerState {
             active_overlay_1: None,
             active_overlays: [None; 4],
             overlay_opacity: 1.0,
+            is_fade_to_black: false,
             active_transition: TransitionType::Fade,
             transition_duration_ms: 500,
             tbar_position: 0.0,
@@ -370,6 +373,26 @@ impl MixerState {
         if clamped >= 0.999 {
             self.cut();
         }
+    }
+
+    /// Toggle Fade to Black (FTB) state
+    pub fn toggle_fade_to_black(&mut self) -> bool {
+        self.is_fade_to_black = !self.is_fade_to_black;
+        self.is_fade_to_black
+    }
+
+    /// Reorder an input to a target rack slot index
+    pub fn reorder_input(&mut self, input_id: InputId, target_index: usize) -> bool {
+        if let Some(current_pos) = self.inputs.iter().position(|i| i.id == input_id) {
+            let max_idx = self.inputs.len().saturating_sub(1);
+            let target = target_index.min(max_idx);
+            if current_pos != target {
+                let item = self.inputs.remove(current_pos);
+                self.inputs.insert(target, item);
+                return true;
+            }
+        }
+        false
     }
 }
 
