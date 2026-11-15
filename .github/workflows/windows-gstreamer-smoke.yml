@@ -1,0 +1,32 @@
+name: Windows GStreamer media smoke
+
+# Validate media-enabled MSVC binaries in hosted Windows CI, not the owner's PC.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-gstreamer-smoke.yml'
+      - 'scripts/ci_windows_gstreamer.ps1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-gstreamer-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-media:
+    name: Windows MSVC GStreamer build and synthetic recording
+    runs-on: windows-2022
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install verified official GStreamer and test Windows media features
+        shell: pwsh
+        run: ./scripts/ci_windows_gstreamer.ps1
