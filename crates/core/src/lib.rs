@@ -206,6 +206,8 @@ pub struct MixerState {
     #[serde(skip)]
     pub recording_intent: Option<RecordingIntent>,
     pub is_external_out: bool,
+    #[serde(default)]
+    pub is_safety_locked: bool,
     pub fps: f32,
     pub cpu_usage_pct: f32,
     pub dropped_frames: u64,
@@ -268,6 +270,7 @@ impl Default for MixerState {
             is_recording: false,
             recording_intent: None,
             is_external_out: false,
+            is_safety_locked: false,
             fps: 50.0,
             cpu_usage_pct: 2.8,
             dropped_frames: 0,
@@ -338,8 +341,23 @@ impl MixerState {
         let _ = self.toggle_overlay(1, id);
     }
 
-    /// Remove an input from the mixer cleanly and safely
+    /// Toggle studio broadcast safety lock
+    pub fn toggle_safety_lock(&mut self) {
+        self.is_safety_locked = !self.is_safety_locked;
+    }
+
+    /// Set studio broadcast safety lock state explicitly
+    pub fn set_safety_lock(&mut self, locked: bool) {
+        self.is_safety_locked = locked;
+    }
+
+    /// Remove an input from the mixer cleanly and safely.
+    /// If safety lock is engaged, removal is blocked to prevent accidental loss
+    /// during live production.
     pub fn remove_input(&mut self, id: InputId) {
+        if self.is_safety_locked {
+            return;
+        }
         self.inputs.retain(|i| i.id != id);
 
         if self.program_input == Some(id) {

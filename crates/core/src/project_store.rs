@@ -158,6 +158,7 @@ impl ProjectFile {
             is_recording: false,
             recording_intent: None,
             is_external_out: false,
+            is_safety_locked: false,
             fps: 50.0,
             cpu_usage_pct: 0.0,
             dropped_frames: 0,

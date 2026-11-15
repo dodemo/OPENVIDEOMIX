@@ -150,6 +150,9 @@ pub struct OpenVideoMixApp {
     pub status_notification: Option<String>,
     pub show_settings: bool,
     pub show_diagnostics: bool,
+    pub show_stop_recording_confirm: bool,
+    pub show_close_warning_modal: bool,
+    pub force_close_confirmed: bool,
     pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
     pub show_safe_areas: bool,
     pub input_search_filter: String,
@@ -219,6 +222,9 @@ impl OpenVideoMixApp {
             status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
             show_settings: false,
             show_diagnostics: false,
+            show_stop_recording_confirm: false,
+            show_close_warning_modal: false,
+            force_close_confirmed: false,
             settings_tab: 0,
             show_safe_areas: false,
             input_search_filter: String::new(),
@@ -297,6 +303,9 @@ impl OpenVideoMixApp {
             status_notification: None,
             show_settings: false,
             show_diagnostics: false,
+            show_stop_recording_confirm: false,
+            show_close_warning_modal: false,
+            force_close_confirmed: false,
             settings_tab: 0,
             show_safe_areas: false,
             input_search_filter: String::new(),
@@ -1142,13 +1151,44 @@ impl OpenVideoMixApp {
             output_metrics,
         )
     }
+
+    /// Returns true if recording, streaming, or recording start intent is currently active.
+    pub fn is_recording_or_streaming(&self) -> bool {
+        let mixer_active = self.mixer.is_recording
+            || self.mixer.is_streaming
+            || self.mixer.recording_intent.is_some();
+        #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+        let prod_active = self
+            .production
+            .as_ref()
+            .map(DesktopProduction::view)
+            .is_some_and(|view| view.recording.active());
+        #[cfg(not(all(feature = "gstreamer-capture", feature = "gstreamer-recording")))]
+        let prod_active = false;
+
+        mixer_active || prod_active
+    }
 }
 
 impl eframe::App for OpenVideoMixApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.gui_time = ctx.input(|input| input.time);
+
+        // Broadcast Safety Close Guard: intercept OS close ([X], Alt+F4) if live/recording
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.force_close_confirmed
+            && self.is_recording_or_streaming()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_close_warning_modal = true;
+        }
+
         if ctx.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, Key::Q)) {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            if !self.force_close_confirmed && self.is_recording_or_streaming() {
+                self.show_close_warning_modal = true;
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
         #[cfg(feature = "local-control-api")]
         if let Some(remote) = &mut self.remote {
@@ -1302,17 +1342,96 @@ impl eframe::App for OpenVideoMixApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled(false, egui::Button::new("EMITIR (pendente)"))
                         .on_disabled_hover_text("RTMP/SRT non están implementados. Este botón non inicia unha emisión.");
-                    #[cfg(all(feature="gstreamer-capture",feature="gstreamer-recording"))]
+                    #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
                     {
-                        let view=self.production.as_ref().map(DesktopProduction::view);
-                        let active=view.as_ref().is_some_and(|view|view.recording.active());
-                        if ui.add_enabled(view.as_ref().is_some_and(|view|view.latest.is_some())||active,egui::Button::new(if active {"PARAR GRAVACIÓN"}else{"GRAVAR TESTE"})).on_hover_text("Grava Program real con ton de proba de 1 kHz a 48 kHz. Non captura micrófono.").clicked() {
-                            if active {self.apply_command(ProductionCommand::StopRecording);}
-                            else {self.show_recording_setup=true;}
+                        let view = self.production.as_ref().map(DesktopProduction::view);
+                        let active = view
+                            .as_ref()
+                            .is_some_and(|view| view.recording.active())
+                            || self.mixer.is_recording;
+                        let can_interact = (view.as_ref().is_some_and(|view| view.latest.is_some())
+                            || active)
+                            && (!active || !self.mixer.is_safety_locked);
+                        let btn_text = if active {
+                            "PARAR GRAVACIÓN"
+                        } else {
+                            "GRAVAR TESTE"
+                        };
+                        let stop_hover = if active && self.mixer.is_safety_locked {
+                            "🔒 Estudo bloqueado por seguridade. Desbloquea para deter a gravación."
+                        } else if active {
+                            "Deter a gravación actual de Program (solicitará confirmación)"
+                        } else {
+                            "Grava Program real con ton de proba (1 kHz / 48 kHz). Sen mic."
+                        };
+
+                        if ui
+                            .add_enabled(can_interact, egui::Button::new(btn_text))
+                            .on_hover_text(stop_hover)
+                            .clicked()
+                        {
+                            if active {
+                                self.show_stop_recording_confirm = true;
+                            } else {
+                                self.show_recording_setup = true;
+                            }
                         }
                     }
-                    #[cfg(not(all(feature="gstreamer-capture",feature="gstreamer-recording")))]
-                    ui.add_enabled(false,egui::Button::new("GRAVAR (pendente)"));
+                    #[cfg(not(all(
+                        feature = "gstreamer-capture",
+                        feature = "gstreamer-recording"
+                    )))]
+                    {
+                        let active = self.mixer.is_recording;
+                        if active {
+                            let can_interact = !self.mixer.is_safety_locked;
+                            if ui
+                                .add_enabled(can_interact, egui::Button::new("PARAR GRAVACIÓN"))
+                                .on_hover_text(if can_interact {
+                                    "Deter gravación (solicitará confirmación)"
+                                } else {
+                                    "🔒 Estudo bloqueado por seguridade. Desbloquea para deter."
+                                })
+                                .clicked()
+                            {
+                                self.show_stop_recording_confirm = true;
+                            }
+                        } else {
+                            ui.add_enabled(false, egui::Button::new("GRAVAR (pendente)"));
+                        }
+                    }
+
+                    // Broadcast Padlock (Cadeado de Seguridade)
+                    let lock_text = if self.mixer.is_safety_locked {
+                        "🔒 BLOQUEADO"
+                    } else {
+                        "🔓 DESBLOQUEADO"
+                    };
+                    let lock_fill = if self.mixer.is_safety_locked {
+                        Color32::from_rgb(180, 40, 40)
+                    } else if self.theme_mode.is_dark() {
+                        Color32::from_rgb(45, 50, 60)
+                    } else {
+                        Color32::from_rgb(215, 222, 230)
+                    };
+                    let lock_text_color =
+                        if self.mixer.is_safety_locked || self.theme_mode.is_dark() {
+                            Color32::WHITE
+                        } else {
+                            Color32::from_rgb(30, 35, 45)
+                        };
+                    let lock_tooltip = if self.mixer.is_safety_locked {
+                        "Cadeado de Seguridade ACTIVADO. Preme para desbloquear."
+                    } else {
+                        "Cadeado de Seguridade DESACTIVADO. Preme para bloquear o estudio."
+                    };
+                    let lock_btn = egui::Button::new(
+                        RichText::new(lock_text).color(lock_text_color).strong(),
+                    )
+                    .fill(lock_fill);
+                    if ui.add(lock_btn).on_hover_text(lock_tooltip).clicked() {
+                        self.apply_command(ProductionCommand::ToggleSafetyLock);
+                    }
 
                     let btn_fill = if self.show_settings {
                         Color32::from_rgb(0, 120, 200)
@@ -1845,14 +1964,24 @@ impl eframe::App for OpenVideoMixApp {
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::Center),
                                                 |ui| {
+                                                    let remove_enabled =
+                                                        !self.mixer.is_safety_locked;
+                                                    let remove_btn = egui::Button::new(
+                                                        RichText::new("✕")
+                                                            .color(if remove_enabled {
+                                                                Color32::from_rgb(240, 80, 80)
+                                                            } else {
+                                                                Color32::from_rgb(120, 120, 120)
+                                                            })
+                                                            .small(),
+                                                    );
                                                     if ui
-                                                        .add(egui::Button::new(
-                                                            RichText::new("✕")
-                                                                .color(Color32::from_rgb(
-                                                                    240, 80, 80,
-                                                                ))
-                                                                .small(),
-                                                        ))
+                                                        .add_enabled(remove_enabled, remove_btn)
+                                                        .on_hover_text("Pechar esta entrada")
+                                                        .on_disabled_hover_text(
+                                                            "🔒 Estudo bloqueado. Desbloquea \
+                                                             para pechar entradas.",
+                                                        )
                                                         .clicked()
                                                     {
                                                         action_remove = Some(input.id);
@@ -2052,10 +2181,12 @@ impl eframe::App for OpenVideoMixApp {
                                 self.apply_command(ProductionCommand::SelectPreview { input: id });
                             }
                             if let Some(id) = action_remove {
-                                #[cfg(feature = "gstreamer-capture")]
-                                self.capture_sessions.remove(&id);
-                                self.loaded_textures.remove(&id);
-                                self.mixer.remove_input(id);
+                                if !self.mixer.is_safety_locked {
+                                    #[cfg(feature = "gstreamer-capture")]
+                                    self.capture_sessions.remove(&id);
+                                    self.loaded_textures.remove(&id);
+                                    self.mixer.remove_input(id);
+                                }
                             }
                             if let Some((id, target)) = action_reorder {
                                 self.apply_command(ProductionCommand::ReorderInput {
@@ -2626,6 +2757,99 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
+        // Broadcast Safety Modal: Confirm Stop Recording
+        if self.show_stop_recording_confirm {
+            egui::Window::new("⚠️ Confirmar Parada de Gravación")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .default_width(440.0)
+                .show(ctx, |ui| {
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("⚠️")
+                                .size(32.0)
+                                .color(Color32::from_rgb(255, 170, 0)),
+                        );
+                        ui.vertical(|ui| {
+                            ui.heading("Seguro que queres deter a gravación de Program?");
+                            ui.label(
+                                "A gravación actual finalizará e o ficheiro quedará gardado.",
+                            );
+                        });
+                    });
+                    ui.add_space(12.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                RichText::new("⏹ Confirmar e Deter")
+                                    .color(Color32::from_rgb(255, 90, 90))
+                                    .strong(),
+                            )
+                            .clicked()
+                        {
+                            self.apply_command(ProductionCommand::StopRecording);
+                            self.show_stop_recording_confirm = false;
+                        }
+                        if ui.button("Cancelar (Continuar Gravando)").clicked() {
+                            self.show_stop_recording_confirm = false;
+                        }
+                    });
+                    ui.add_space(4.0);
+                });
+        }
+
+        // Broadcast Safety Modal: Alert on Window Close during Active Recording/Streaming
+        if self.show_close_warning_modal {
+            egui::Window::new("🛑 Gravación ou Emisión en Curso")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .default_width(480.0)
+                .show(ctx, |ui| {
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("🛑")
+                                .size(36.0)
+                                .color(Color32::from_rgb(255, 60, 60)),
+                        );
+                        ui.vertical(|ui| {
+                            ui.heading("Hai unha gravación ou emisión activa!");
+                            ui.label(
+                                "Debes deter a gravación/emisión antes de saír de \
+                                 OPENVIDEOMIX para evitar a perda ou corrupción dos ficheiros.",
+                            );
+                        });
+                    });
+                    ui.add_space(12.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                RichText::new("⏹ Deter Gravación e Pechar")
+                                    .color(Color32::from_rgb(255, 90, 90))
+                                    .strong(),
+                            )
+                            .clicked()
+                        {
+                            self.apply_command(ProductionCommand::StopRecording);
+                            self.force_close_confirmed = true;
+                            self.show_close_warning_modal = false;
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("Cancelar (Seguir Emitindo)").clicked() {
+                            self.show_close_warning_modal = false;
+                        }
+                    });
+                    ui.add_space(4.0);
+                });
+        }
+
         #[cfg(feature = "local-control-api")]
         if let Some(remote) = &mut self.remote {
             remote.refresh_snapshot(&self.dispatcher, &self.mixer);
@@ -2802,5 +3026,89 @@ mod gui_command_tests {
         assert_eq!(app.settings_tab, 0);
         app.settings_tab = 4; // Aspecto e Tema
         assert_eq!(app.settings_tab, 4);
+    }
+
+    #[test]
+    fn test_broadcast_safety_lock_in_app() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert!(!app.mixer.is_safety_locked);
+
+        // Lock safety via ProductionCommand
+        app.gui_time = 1.0;
+        app.apply_command(ProductionCommand::ToggleSafetyLock);
+        assert!(app.mixer.is_safety_locked);
+
+        // While safety locked, input removal must be blocked
+        let initial_count = app.mixer.inputs.len();
+        let first_id = app.mixer.inputs[0].id;
+        app.mixer.remove_input(first_id);
+        assert_eq!(app.mixer.inputs.len(), initial_count);
+        assert!(app.mixer.inputs.iter().any(|i| i.id == first_id));
+
+        // Unlock safety on a new frame timestamp
+        app.gui_time = 2.0;
+        app.apply_command(ProductionCommand::ToggleSafetyLock);
+        assert!(!app.mixer.is_safety_locked);
+
+        // Input removal succeeds when unlocked
+        app.mixer.remove_input(first_id);
+        assert_eq!(app.mixer.inputs.len(), initial_count - 1);
+        assert!(!app.mixer.inputs.iter().any(|i| i.id == first_id));
+    }
+
+    #[test]
+    fn test_is_recording_or_streaming_detection() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert!(!app.is_recording_or_streaming());
+
+        // Simulation or production flags
+        app.mixer.is_recording = true;
+        assert!(app.is_recording_or_streaming());
+        app.mixer.is_recording = false;
+
+        app.mixer.is_streaming = true;
+        assert!(app.is_recording_or_streaming());
+        app.mixer.is_streaming = false;
+
+        app.mixer.recording_intent = Some(openvideomix_core::RecordingIntent {
+            revision: 42,
+            path: Some("rec.webm".into()),
+            live_audio: None,
+        });
+        assert!(app.is_recording_or_streaming());
+    }
+
+    #[test]
+    fn test_close_guard_and_stop_confirm_flow() {
+        let mut app = OpenVideoMixApp::new_test();
+        assert!(!app.show_stop_recording_confirm);
+        assert!(!app.show_close_warning_modal);
+        assert!(!app.force_close_confirmed);
+
+        // Stopping active recording prompts modal confirmation
+        app.mixer.is_recording = true;
+        assert!(app.is_recording_or_streaming());
+
+        app.show_stop_recording_confirm = true;
+        assert!(app.show_stop_recording_confirm);
+
+        // Simulating confirming stop
+        app.apply_command(ProductionCommand::StopRecording);
+        app.show_stop_recording_confirm = false;
+        assert!(!app.show_stop_recording_confirm);
+
+        // Active recording close interception
+        app.mixer.is_recording = true;
+        if !app.force_close_confirmed && app.is_recording_or_streaming() {
+            app.show_close_warning_modal = true;
+        }
+        assert!(app.show_close_warning_modal);
+
+        // Operator confirms stop and close in modal
+        app.apply_command(ProductionCommand::StopRecording);
+        app.force_close_confirmed = true;
+        app.show_close_warning_modal = false;
+        assert!(!app.show_close_warning_modal);
+        assert!(app.force_close_confirmed);
     }
 }

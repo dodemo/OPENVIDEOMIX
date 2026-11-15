@@ -65,6 +65,11 @@ pub fn translate_shortcut(
             input: input_id_from_vmix_number(input_number, state)?,
             muted: true,
         }),
+        "Lock" if input_number.is_none() => Ok(ProductionCommand::SetSafetyLock { locked: true }),
+        "Unlock" if input_number.is_none() => {
+            Ok(ProductionCommand::SetSafetyLock { locked: false })
+        }
+        "ToggleSafetyLock" if input_number.is_none() => Ok(ProductionCommand::ToggleSafetyLock),
         _ => Err(ShortcutError::UnsupportedFunction(function.to_string())),
     }
 }
@@ -144,6 +149,23 @@ mod tests {
                 input: 2,
                 muted: false
             })
+        );
+    }
+
+    #[test]
+    fn safety_lock_shortcuts_translate_correctly() {
+        let state = MixerState::default();
+        assert_eq!(
+            translate_shortcut("Lock", None, &state),
+            Ok(ProductionCommand::SetSafetyLock { locked: true })
+        );
+        assert_eq!(
+            translate_shortcut("Unlock", None, &state),
+            Ok(ProductionCommand::SetSafetyLock { locked: false })
+        );
+        assert_eq!(
+            translate_shortcut("ToggleSafetyLock", None, &state),
+            Ok(ProductionCommand::ToggleSafetyLock)
         );
     }
 }
