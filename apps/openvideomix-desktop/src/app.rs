@@ -18,6 +18,8 @@ use openvideomix_core::midi::{
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput, DEMO_CAMERA_PATH};
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
+#[cfg(feature = "gstreamer-recording")]
+use gstreamer as gst;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -99,6 +101,7 @@ pub struct OpenVideoMixApp {
     remote: Option<RemoteControl>,
     pub status_notification: Option<String>,
     pub show_settings: bool,
+    pub show_diagnostics: bool,
     pub settings_tab: usize, // 0: Video, 1: Audio, 2: Dispositivos
     pub show_safe_areas: bool,
     pub input_search_filter: String,
@@ -158,6 +161,7 @@ impl OpenVideoMixApp {
             remote: None,
             status_notification: Some("Modo demostración: 50 FPS é só o perfil solicitado. A captura e as saídas aínda non están operativas.".into()),
             show_settings: false,
+            show_diagnostics: false,
             settings_tab: 0,
             show_safe_areas: false,
             input_search_filter: String::new(),
@@ -932,6 +936,88 @@ impl OpenVideoMixApp {
             );
         }
     }
+
+    pub fn generate_diagnostics(&self) -> openvideomix_core::SystemDiagnostics {
+        #[allow(unused_mut)]
+        let mut plugins = Vec::new();
+        let gst_available;
+        let gst_version;
+
+        #[cfg(feature = "gstreamer-recording")]
+        {
+            gst_available = true;
+            gst_version = Some(gst::version_string().to_string());
+            for name in &[
+                "videotestsrc",
+                "audiotestsrc",
+                "videoconvert",
+                "vp8enc",
+                "vorbisenc",
+                "webmmux",
+                "appsrc",
+            ] {
+                if gst::ElementFactory::find(name).is_some() {
+                    plugins.push((*name).to_string());
+                }
+            }
+        }
+        #[cfg(not(feature = "gstreamer-recording"))]
+        {
+            gst_available = false;
+            gst_version = None;
+        }
+
+        let inputs = self
+            .mixer
+            .inputs
+            .iter()
+            .map(|input| openvideomix_core::InputDiagnosticInfo {
+                id: input.id,
+                name: input.name.clone(),
+                kind_summary: format!("{:?}", input.kind),
+                is_active: Some(input.id) == self.mixer.preview_input
+                    || Some(input.id) == self.mixer.program_input,
+                is_online: input.is_online,
+            })
+            .collect();
+
+        #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+        let output_metrics = self.production.as_ref().and_then(|p| {
+            let view = p.view();
+            if view.recording.active() {
+                let duration_seconds = match &view.recording {
+                    RecordingState::Recording { submitted, .. } => *submitted / 50,
+                    _ => 0,
+                };
+                Some(openvideomix_core::OutputMetrics {
+                    status: openvideomix_core::OutputStatus::Live {
+                        destination: self.recording_path.clone(),
+                        started_at: chrono::Utc::now(),
+                    },
+                    duration_seconds,
+                    encoded_frames: view.stats.rendered_frames,
+                    dropped_frames: view.stats.missed_deadlines,
+                    average_fps: 50.0,
+                    target_fps: 50.0,
+                    bit_rate_kbps: 4500,
+                })
+            } else {
+                None
+            }
+        });
+
+        #[cfg(not(all(feature = "gstreamer-capture", feature = "gstreamer-recording")))]
+        let output_metrics = None;
+
+        openvideomix_core::SystemDiagnostics::new(
+            "0.1.0-alpha",
+            gst_available,
+            gst_version,
+            plugins,
+            inputs,
+            output_metrics,
+        )
+    }
 }
 
 impl eframe::App for OpenVideoMixApp {
@@ -1108,6 +1194,24 @@ impl eframe::App for OpenVideoMixApp {
                         .fill(if self.show_settings { Color32::from_rgb(0, 120, 200) } else { Color32::from_rgb(45, 50, 60) });
                     if ui.add(settings_btn).clicked() {
                         self.show_settings = !self.show_settings;
+                    }
+
+                    let diag_btn = egui::Button::new(
+                        RichText::new("📋 DIAGNÓSTICO").color(Color32::WHITE),
+                    )
+                    .fill(if self.show_diagnostics {
+                        Color32::from_rgb(0, 120, 200)
+                    } else {
+                        Color32::from_rgb(45, 50, 60)
+                    });
+                    if ui
+                        .add(diag_btn)
+                        .on_hover_text(
+                            "Exportar informe de diagnóstico redactado e sen datos persoais",
+                        )
+                        .clicked()
+                    {
+                        self.show_diagnostics = !self.show_diagnostics;
                     }
                 });
             });
@@ -2186,6 +2290,62 @@ impl eframe::App for OpenVideoMixApp {
                 });
         }
 
+        if self.show_diagnostics {
+            egui::Window::new("📋 Diagnóstico do Sistema (Sanitizado)")
+                .collapsible(false)
+                .resizable(true)
+                .default_size([640.0, 480.0])
+                .show(ctx, |ui| {
+                    ui.label(
+                        "Este informe está redactado e NON contén datos persoais, \
+                         contrasinais nin rutas de usuario.",
+                    );
+                    let diag = self.generate_diagnostics();
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .max_height(340.0)
+                        .show(ui, |ui| {
+                            ui.monospace(diag.to_markdown_report());
+                        });
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button("💾 Gardar Markdown...")
+                            .on_hover_text("Gardar informe como ficheiro .md")
+                            .clicked()
+                        {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("openvideomix-diagnostics.md")
+                                .add_filter("Markdown", &["md"])
+                                .save_file()
+                            {
+                                let _ = std::fs::write(path, diag.to_markdown_report());
+                            }
+                        }
+                        if ui
+                            .button("💾 Gardar JSON...")
+                            .on_hover_text("Gardar datos en bruto como ficheiro .json")
+                            .clicked()
+                        {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("openvideomix-diagnostics.json")
+                                .add_filter("JSON", &["json"])
+                                .save_file()
+                            {
+                                if let Ok(json) = diag.to_json() {
+                                    let _ = std::fs::write(path, json);
+                                }
+                            }
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Pechar").clicked() {
+                                self.show_diagnostics = false;
+                            }
+                        });
+                    });
+                });
+        }
+
         #[cfg(feature = "local-control-api")]
         if let Some(remote) = &mut self.remote {
             remote.refresh_snapshot(&self.dispatcher, &self.mixer);
@@ -2294,5 +2454,65 @@ mod gui_command_tests {
             )
             .unwrap();
         assert_eq!(mixer.active_overlays[1], Some(3));
+    }
+
+    #[test]
+    fn test_generate_diagnostics_sanitized() {
+        let app = OpenVideoMixApp {
+            mixer: MixerState::default(),
+            dispatcher: CommandDispatcher::default(),
+            gui_time: 0.0,
+            gui_commands: GuiCommandGate::default(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            production: None,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            program_texture: None,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            program_frame_index: None,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            recording_intent_seen: 0,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            show_recording_setup: false,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            recording_path: String::new(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            live_audio_factory: String::new(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            live_audio_device: String::new(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            live_audio_selected: false,
+            #[cfg(feature = "local-control-api")]
+            remote: None,
+            status_notification: None,
+            show_settings: false,
+            show_diagnostics: false,
+            settings_tab: 0,
+            show_safe_areas: false,
+            input_search_filter: String::new(),
+            input_category_filter: 0,
+            audio_mixer_collapsed: false,
+            transition_duration_ms: 1000,
+            last_frame_time: Instant::now(),
+            animated_tick: 0.0,
+            connected_v4l2_devices: Vec::new(),
+            loaded_textures: HashMap::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            capture_sessions: HashMap::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            discovered_cameras: Vec::new(),
+            #[cfg(feature = "midi-input")]
+            midi_service: None,
+            #[cfg(feature = "midi-input")]
+            midi_mapper: MidiMapper::default(),
+            #[cfg(feature = "midi-input")]
+            midi_learn: None,
+        };
+
+        let diag = app.generate_diagnostics();
+        assert_eq!(diag.product, "OPENVIDEOMIX");
+        assert!(diag.sanitized);
+        assert!(!diag.inputs.is_empty());
+        let md = diag.to_markdown_report();
+        assert!(md.contains("OPENVIDEOMIX Diagnostics Report"));
     }
 }

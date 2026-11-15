@@ -16,10 +16,12 @@ pub mod reference_compositor;
 pub mod reference_output;
 
 pub mod commands;
+pub mod diagnostics;
 pub mod midi;
 pub mod vmix_compat;
 
 pub use audio_graph::{AudioDriftStats, AudioGraph, AudioMeterState, ChannelRouting};
+pub use diagnostics::{InputDiagnosticInfo, SystemDiagnostics};
 pub use media_source::{
     BoundedFrameQueue, IngestHealth, IngestStatus, MediaPlaybackState, ObsbotTiny2Profile,
     SourceError, SourceLifecycle, OBSBOT_TINY2_PAN_MAX, OBSBOT_TINY2_PAN_MIN, OBSBOT_TINY2_PID,
