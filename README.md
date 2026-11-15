@@ -24,7 +24,7 @@ Un dispositivo que anuncie só 1080p30 ou unha resolución inferior non se trata
 | MIDI | Adaptador nativo opcional, MIDI Learn, perfís JSON e *soft takeover* | Compilación/CI verificadas; falta proba de controladores físicos |
 | OpenDeck / Stream Deck | Complemento OpenAction separado: CUT, seleccionar Preview e alternar Overlay 1 | Paquetes de proba para as catro plataformas; falta validación cun dispositivo e instalador distribuíble |
 | API local | Servidor HTTP opt-in autenticado, só en `127.0.0.1:21873` | Sen exposición á LAN, WebSocket nin feedback continuo de tally |
-| Audio, gravación e streaming | Gravación opt-in de Program real en WebM desde o escritorio, con ton xerado e ocos temporais conservados | Sen audio capturado/mesturado, 1080p50 sostido nin streaming |
+| Audio, gravación e streaming | Gravación opt-in de Program real en WebM desde o escritorio; ton xerado ou son 48 kHz PCM en directo (#45) con ocos temporais conservados | Sen mestura de buses completos/AFV/PFL, 1080p50 sostido nin streaming RTMP |
 
 Os indicadores de demostración da interface non acreditan cadencia de saída. Os medidores de audio quedan a cero e indican ausencia de captura. A gravación de proba ten estado e contas reais; a emisión e as transicións non implementadas seguen desactivadas.
 
