@@ -94,10 +94,7 @@ impl TitleData {
     }
 
     /// Breaking news / alert preset with high-visibility red accent
-    pub fn preset_breaking_news(
-        headline: impl Into<String>,
-        details: impl Into<String>,
-    ) -> Self {
+    pub fn preset_breaking_news(headline: impl Into<String>, details: impl Into<String>) -> Self {
         Self {
             headline: headline.into(),
             subtitle: details.into(),
@@ -177,7 +174,10 @@ mod tests {
 
     #[test]
     fn test_title_data_serialization_roundtrip() {
-        let title = TitleData::new("Titular con ñ e tiles: á, é, í, ó, ú", "Subtítulo en Galego");
+        let title = TitleData::new(
+            "Titular con ñ e tiles: á, é, í, ó, ú",
+            "Subtítulo en Galego",
+        );
         let json = serde_json::to_string(&title).unwrap();
         let decoded: TitleData = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded, title);

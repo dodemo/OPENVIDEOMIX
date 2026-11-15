@@ -296,9 +296,7 @@ impl CommandDispatcher {
                     .find(|item| item.id == input)
                     .ok_or(CommandError::UnknownInput(input))?;
                 match &mut source.kind {
-                    crate::InputKind::Title {
-                        template: current,
-                    } => {
+                    crate::InputKind::Title { template: current } => {
                         *current = template;
                     }
                     _ => return Err(CommandError::NotATitleInput(input)),
@@ -738,12 +736,13 @@ mod live_recording_tests {
 
         // Input 6 is the default Title input
         assert_eq!(state.inputs[5].id, 6);
-        assert!(matches!(state.inputs[5].kind, crate::InputKind::Title { .. }));
+        assert!(matches!(
+            state.inputs[5].kind,
+            crate::InputKind::Title { .. }
+        ));
 
-        let updated_title = TitleData::preset_speaker(
-            "Iñaki López",
-            "Presentador · Directo Coruña",
-        );
+        let updated_title =
+            TitleData::preset_speaker("Iñaki López", "Presentador · Directo Coruña");
 
         let snap = dispatcher
             .dispatch(

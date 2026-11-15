@@ -17,9 +17,7 @@ use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 use openvideomix_core::midi::{
     MidiBinding, MidiEvent, MidiMapper, MidiProfile, MidiSource, MidiTarget,
 };
-use openvideomix_core::{
-    InputId, InputKind, MixerState, TitleData, VideoInput, DEMO_CAMERA_PATH,
-};
+use openvideomix_core::{InputId, InputKind, MixerState, TitleData, VideoInput, DEMO_CAMERA_PATH};
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
 use std::collections::HashMap;
@@ -821,25 +819,17 @@ impl OpenVideoMixApp {
     }
 
     /// Render dynamic lower-third title graphic over a monitor canvas
-    fn render_title_graphics(
-        painter: &egui::Painter,
-        rect: Rect,
-        template: &TitleData,
-    ) {
+    fn render_title_graphics(painter: &egui::Painter, rect: Rect, template: &TitleData) {
         let base_scale = (rect.width() / 1920.0).max(0.18);
         let scale = base_scale * template.scale;
 
-        let x_pos =
-            rect.min.x + (rect.width() * (template.x_percent.clamp(0.0, 95.0) / 100.0));
-        let y_pos =
-            rect.min.y + (rect.height() * (template.y_percent.clamp(0.0, 95.0) / 100.0));
+        let x_pos = rect.min.x + (rect.width() * (template.x_percent.clamp(0.0, 95.0) / 100.0));
+        let y_pos = rect.min.y + (rect.height() * (template.y_percent.clamp(0.0, 95.0) / 100.0));
 
-        let headline_font = egui::FontId::proportional(
-            (template.font_size_headline * scale).max(9.0),
-        );
-        let subtitle_font = egui::FontId::proportional(
-            (template.font_size_subtitle * scale).max(7.0),
-        );
+        let headline_font =
+            egui::FontId::proportional((template.font_size_headline * scale).max(9.0));
+        let subtitle_font =
+            egui::FontId::proportional((template.font_size_subtitle * scale).max(7.0));
 
         let text_color = Color32::from_rgba_unmultiplied(
             template.text_color[0],
@@ -854,16 +844,10 @@ impl OpenVideoMixApp {
             template.subtitle_color[3],
         );
 
-        let headline_galley = painter.layout_no_wrap(
-            template.headline.clone(),
-            headline_font,
-            text_color,
-        );
-        let subtitle_galley = painter.layout_no_wrap(
-            template.subtitle.clone(),
-            subtitle_font,
-            subtitle_color,
-        );
+        let headline_galley =
+            painter.layout_no_wrap(template.headline.clone(), headline_font, text_color);
+        let subtitle_galley =
+            painter.layout_no_wrap(template.subtitle.clone(), subtitle_font, subtitle_color);
 
         let text_w = headline_galley.size().x.max(subtitle_galley.size().x);
         let gap = 4.0 * scale;
@@ -876,10 +860,7 @@ impl OpenVideoMixApp {
         let box_w = text_w + (pad_h * 2.0) + accent_w + (6.0 * scale);
         let box_h = text_h + (pad_v * 2.0);
 
-        let box_rect = Rect::from_min_size(
-            Pos2::new(x_pos, y_pos),
-            Vec2::new(box_w, box_h),
-        );
+        let box_rect = Rect::from_min_size(Pos2::new(x_pos, y_pos), Vec2::new(box_w, box_h));
 
         // 1. Drop shadow
         if template.has_drop_shadow {
@@ -894,11 +875,7 @@ impl OpenVideoMixApp {
                 template.shadow_color[2],
                 template.shadow_color[3],
             );
-            painter.rect_filled(
-                shadow_rect,
-                template.corner_radius * scale,
-                shadow_col,
-            );
+            painter.rect_filled(shadow_rect, template.corner_radius * scale, shadow_col);
         }
 
         // 2. Background box
@@ -908,28 +885,17 @@ impl OpenVideoMixApp {
             template.bg_color[2],
             template.bg_color[3],
         );
-        painter.rect_filled(
-            box_rect,
-            template.corner_radius * scale,
-            bg_col,
-        );
+        painter.rect_filled(box_rect, template.corner_radius * scale, bg_col);
 
         // 3. Left accent bar
-        let accent_rect = Rect::from_min_size(
-            box_rect.min,
-            Vec2::new(accent_w, box_h),
-        );
+        let accent_rect = Rect::from_min_size(box_rect.min, Vec2::new(accent_w, box_h));
         let accent_col = Color32::from_rgba_unmultiplied(
             template.accent_bar_color[0],
             template.accent_bar_color[1],
             template.accent_bar_color[2],
             template.accent_bar_color[3],
         );
-        painter.rect_filled(
-            accent_rect,
-            template.corner_radius * scale,
-            accent_col,
-        );
+        painter.rect_filled(accent_rect, template.corner_radius * scale, accent_col);
 
         // 4. Headline and Subtitle text galleys
         let text_x = box_rect.min.x + accent_w + pad_h + (4.0 * scale);
@@ -937,7 +903,11 @@ impl OpenVideoMixApp {
         let subtitle_y = headline_y + headline_galley.size().y + gap;
 
         painter.galley(Pos2::new(text_x, headline_y), headline_galley, text_color);
-        painter.galley(Pos2::new(text_x, subtitle_y), subtitle_galley, subtitle_color);
+        painter.galley(
+            Pos2::new(text_x, subtitle_y),
+            subtitle_galley,
+            subtitle_color,
+        );
     }
 
     /// Render video or graphic content inside a monitor rect
@@ -1471,27 +1441,35 @@ impl eframe::App for OpenVideoMixApp {
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.heading(RichText::new("📹 OPENVIDEOMIX").color(Color32::from_rgb(0, 190, 255)).strong());
+                ui.heading(
+                    RichText::new("📹 OPENVIDEOMIX")
+                        .color(Color32::from_rgb(0, 190, 255))
+                        .strong(),
+                );
                 ui.label(RichText::new("v0.1.0-alpha").weak());
                 ui.separator();
 
                 ui.label(RichText::new("PERFÍL:").strong());
                 ui.label(&self.mixer.settings.output_resolution);
-                ui.label(RichText::new(format!("@ {}", self.mixer.settings.frame_rate)).color(Color32::from_rgb(0, 255, 180)).strong());
+                ui.label(
+                    RichText::new(format!("@ {}", self.mixer.settings.frame_rate))
+                        .color(Color32::from_rgb(0, 255, 180))
+                        .strong(),
+                );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_enabled(false, egui::Button::new("EMITIR (pendente)"))
-                        .on_disabled_hover_text("RTMP/SRT non están implementados. Este botón non inicia unha emisión.");
+                        .on_disabled_hover_text(
+                            "RTMP/SRT non están implementados. Este botón non inicia unha emisión.",
+                        );
                     #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
                     {
                         let view = self.production.as_ref().map(DesktopProduction::view);
-                        let active = view
-                            .as_ref()
-                            .is_some_and(|view| view.recording.active())
+                        let active = view.as_ref().is_some_and(|view| view.recording.active())
                             || self.mixer.is_recording;
-                        let can_interact = (view.as_ref().is_some_and(|view| view.latest.is_some())
-                            || active)
-                            && (!active || !self.mixer.is_safety_locked);
+                        let can_interact =
+                            (view.as_ref().is_some_and(|view| view.latest.is_some()) || active)
+                                && (!active || !self.mixer.is_safety_locked);
                         let btn_text = if active {
                             "PARAR GRAVACIÓN"
                         } else {
@@ -1565,10 +1543,9 @@ impl eframe::App for OpenVideoMixApp {
                     } else {
                         "Cadeado de Seguridade DESACTIVADO. Preme para bloquear o estudio."
                     };
-                    let lock_btn = egui::Button::new(
-                        RichText::new(lock_text).color(lock_text_color).strong(),
-                    )
-                    .fill(lock_fill);
+                    let lock_btn =
+                        egui::Button::new(RichText::new(lock_text).color(lock_text_color).strong())
+                            .fill(lock_fill);
                     if ui.add(lock_btn).on_hover_text(lock_tooltip).clicked() {
                         self.apply_command(ProductionCommand::ToggleSafetyLock);
                     }
@@ -1585,8 +1562,9 @@ impl eframe::App for OpenVideoMixApp {
                     } else {
                         Color32::from_rgb(30, 35, 45)
                     };
-                    let settings_btn = egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(btn_text_color))
-                        .fill(btn_fill);
+                    let settings_btn =
+                        egui::Button::new(RichText::new("⚙ AXUSTES (F1)").color(btn_text_color))
+                            .fill(btn_fill);
                     if ui.add(settings_btn).clicked() {
                         self.show_settings = !self.show_settings;
                     }
@@ -1603,10 +1581,9 @@ impl eframe::App for OpenVideoMixApp {
                     } else {
                         Color32::from_rgb(30, 35, 45)
                     };
-                    let diag_btn = egui::Button::new(
-                        RichText::new("📋 DIAGNÓSTICO").color(diag_text_color),
-                    )
-                    .fill(diag_fill);
+                    let diag_btn =
+                        egui::Button::new(RichText::new("📋 DIAGNÓSTICO").color(diag_text_color))
+                            .fill(diag_fill);
                     if ui
                         .add(diag_btn)
                         .on_hover_text(
@@ -1624,21 +1601,18 @@ impl eframe::App for OpenVideoMixApp {
                     } else {
                         Color32::from_rgb(215, 222, 230)
                     };
-                    let title_text_color =
-                        if self.show_title_designer || self.theme_mode.is_dark() {
-                            Color32::WHITE
-                        } else {
-                            Color32::from_rgb(30, 35, 45)
-                        };
-                    let title_btn = egui::Button::new(
-                        RichText::new("🎨 TITULADOR").color(title_text_color),
-                    )
-                    .fill(title_fill);
+                    let title_text_color = if self.show_title_designer || self.theme_mode.is_dark()
+                    {
+                        Color32::WHITE
+                    } else {
+                        Color32::from_rgb(30, 35, 45)
+                    };
+                    let title_btn =
+                        egui::Button::new(RichText::new("🎨 TITULADOR").color(title_text_color))
+                            .fill(title_fill);
                     if ui
                         .add(title_btn)
-                        .on_hover_text(
-                            "Deseñador de títulos e rótulos en directo (Lower-Thirds)",
-                        )
+                        .on_hover_text("Deseñador de títulos e rótulos en directo (Lower-Thirds)")
                         .clicked()
                     {
                         self.show_title_designer = !self.show_title_designer;
@@ -2995,8 +2969,7 @@ impl eframe::App for OpenVideoMixApp {
                         return;
                     }
 
-                    let current_selected =
-                        self.selected_title_input.unwrap_or(title_inputs[0].0);
+                    let current_selected = self.selected_title_input.unwrap_or(title_inputs[0].0);
                     let mut selected_id = current_selected;
 
                     ui.horizontal(|ui| {
@@ -3090,10 +3063,8 @@ impl eframe::App for OpenVideoMixApp {
                             ui.label("Titular principal:");
                             if ui
                                 .add(
-                                    egui::TextEdit::singleline(
-                                        &mut self.editing_title.headline,
-                                    )
-                                    .desired_width(340.0),
+                                    egui::TextEdit::singleline(&mut self.editing_title.headline)
+                                        .desired_width(340.0),
                                 )
                                 .changed()
                             {
@@ -3104,10 +3075,8 @@ impl eframe::App for OpenVideoMixApp {
                             ui.label("Subtítulo / Cargo:");
                             if ui
                                 .add(
-                                    egui::TextEdit::singleline(
-                                        &mut self.editing_title.subtitle,
-                                    )
-                                    .desired_width(340.0),
+                                    egui::TextEdit::singleline(&mut self.editing_title.subtitle)
+                                        .desired_width(340.0),
                                 )
                                 .changed()
                             {
@@ -3153,11 +3122,8 @@ impl eframe::App for OpenVideoMixApp {
                             ui.label("Escala:");
                             if ui
                                 .add(
-                                    egui::Slider::new(
-                                        &mut self.editing_title.scale,
-                                        0.5..=2.5,
-                                    )
-                                    .step_by(0.05),
+                                    egui::Slider::new(&mut self.editing_title.scale, 0.5..=2.5)
+                                        .step_by(0.05),
                                 )
                                 .changed()
                             {
@@ -3284,8 +3250,7 @@ impl eframe::App for OpenVideoMixApp {
                                 .add_filter("OPENVIDEOMIX Title", &["ovtitle.json", "json"])
                                 .save_file()
                             {
-                                if let Ok(json) =
-                                    serde_json::to_string_pretty(&self.editing_title)
+                                if let Ok(json) = serde_json::to_string_pretty(&self.editing_title)
                                 {
                                     let _ = std::fs::write(path, json);
                                 }
@@ -3298,9 +3263,7 @@ impl eframe::App for OpenVideoMixApp {
                                 .pick_file()
                             {
                                 if let Ok(data) = std::fs::read_to_string(path) {
-                                    if let Ok(loaded) =
-                                        serde_json::from_str::<TitleData>(&data)
-                                    {
+                                    if let Ok(loaded) = serde_json::from_str::<TitleData>(&data) {
                                         self.editing_title = loaded;
                                         self.apply_command(ProductionCommand::UpdateTitle {
                                             input: selected_id,
@@ -3331,9 +3294,7 @@ impl eframe::App for OpenVideoMixApp {
                         );
                         ui.vertical(|ui| {
                             ui.heading("Seguro que queres deter a gravación de Program?");
-                            ui.label(
-                                "A gravación actual finalizará e o ficheiro quedará gardado.",
-                            );
+                            ui.label("A gravación actual finalizará e o ficheiro quedará gardado.");
                         });
                     });
                     ui.add_space(12.0);
@@ -3709,12 +3670,7 @@ mod gui_command_tests {
         });
 
         // Verify that mixer state has updated
-        let modified = app
-            .mixer
-            .inputs
-            .iter()
-            .find(|i| i.id == title_id)
-            .unwrap();
+        let modified = app.mixer.inputs.iter().find(|i| i.id == title_id).unwrap();
         if let InputKind::Title { template } = &modified.kind {
             assert_eq!(
                 template.headline,
