@@ -1,0 +1,52 @@
+name: Windows portable demo artifact
+
+# Bounded Windows build: no agents, hardware probes or paid AI models.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-portable-demo.yml'
+      - 'scripts/package_windows_demo.ps1'
+      - 'docs/WINDOWS_PORTABLE_DEMO.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-portable-demo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-demo:
+    name: Portable Windows x64 demo (no media)
+    runs-on: windows-2022
+    timeout-minutes: 35
+    env:
+      CARGO_INCREMENTAL: '0'
+      RUSTFLAGS: '-C target-feature=+crt-static'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test the default-feature workspace
+        shell: pwsh
+        run: cargo test --workspace
+
+      - name: Compile the Windows x64 GUI (default features only)
+        shell: pwsh
+        run: cargo build --release -p openvideomix-desktop --bin openvideomix
+
+      - name: Make a versioned ZIP and validate its contents
+        shell: pwsh
+        run: ./scripts/package_windows_demo.ps1 -CommitSha '${{ github.sha }}'
+
+      - name: Upload the portable demo and SHA256
+        uses: actions/upload-artifact@v4
+        with:
+          name: OPENVIDEOMIX-Windows-Demo-${{ github.sha }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
