@@ -2766,10 +2766,7 @@ mod gui_command_tests {
         app.theme_mode = ThemeMode::Light;
         assert_eq!(app.theme_mode, ThemeMode::Light);
         assert!(!app.theme_mode.is_dark());
-        assert_eq!(
-            app.theme_mode.label(),
-            "☀️ Modo Claro (Clean Light Studio)"
-        );
+        assert_eq!(app.theme_mode.label(), "☀️ Modo Claro (Clean Light Studio)");
 
         let light_visuals = app.theme_mode.visuals();
         assert_eq!(light_visuals.panel_fill, Color32::from_rgb(240, 243, 246));
