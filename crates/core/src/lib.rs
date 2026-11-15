@@ -11,10 +11,13 @@ pub mod video_profile;
 
 pub mod reference_compositor;
 pub mod reference_output;
+pub mod audio_graph;
 
 pub mod commands;
 pub mod midi;
 pub mod vmix_compat;
+
+pub use audio_graph::{AudioDriftStats, AudioGraph, AudioMeterState, ChannelRouting};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
