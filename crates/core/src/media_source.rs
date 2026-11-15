@@ -7,7 +7,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::camera::{CameraCapabilities, CameraIdentity, CameraMode, FixedCameraProfile, FrameRate, PanTiltZoom, PixelFormat};
+use crate::camera::{
+    CameraCapabilities, CameraIdentity, CameraMode, FixedCameraProfile, FrameRate, PanTiltZoom,
+    PixelFormat,
+};
 
 /// Known USB Vendor & Product IDs for OBSBOT Tiny 2 webcam.
 pub const OBSBOT_TINY2_VID: u16 = 0x3564;
@@ -75,11 +78,17 @@ impl SourceLifecycle {
     }
 
     pub fn is_operational(&self) -> bool {
-        matches!(self, Self::Configured { .. } | Self::Opening { .. } | Self::Live { .. })
+        matches!(
+            self,
+            Self::Configured { .. } | Self::Opening { .. } | Self::Live { .. }
+        )
     }
 
     pub fn can_reconnect(&self) -> bool {
-        matches!(self, Self::Stalled { .. } | Self::Error { .. } | Self::Closed)
+        matches!(
+            self,
+            Self::Stalled { .. } | Self::Error { .. } | Self::Closed
+        )
     }
 }
 
@@ -138,7 +147,10 @@ impl IngestHealth {
             };
         } else if self.frames_dropped_queue_full > 5 {
             self.status = IngestStatus::Degraded {
-                reason: format!("Queue backlog: {} dropped frames", self.frames_dropped_queue_full),
+                reason: format!(
+                    "Queue backlog: {} dropped frames",
+                    self.frames_dropped_queue_full
+                ),
             };
         } else {
             self.status = IngestStatus::Healthy;
@@ -270,7 +282,12 @@ impl ObsbotTiny2Profile {
             1920,
             1080,
             FrameRate::PAL_50,
-            &[PixelFormat::Mjpeg, PixelFormat::H264, PixelFormat::Nv12, PixelFormat::Yuy2],
+            &[
+                PixelFormat::Mjpeg,
+                PixelFormat::H264,
+                PixelFormat::Nv12,
+                PixelFormat::Yuy2,
+            ],
         )
     }
 }
