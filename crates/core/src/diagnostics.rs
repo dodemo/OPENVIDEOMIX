@@ -123,10 +123,7 @@ impl SystemDiagnostics {
         if self.detected_plugins.is_empty() {
             out.push_str("- None detected or GStreamer features disabled\n\n");
         } else {
-            out.push_str(&format!(
-                "- {}\n\n",
-                self.detected_plugins.join(", ")
-            ));
+            out.push_str(&format!("- {}\n\n", self.detected_plugins.join(", ")));
         }
 
         out.push_str("#### Inputs Summary\n");
@@ -179,17 +176,11 @@ mod tests {
     fn test_path_sanitization_windows_and_linux() {
         let win_path = r"C:\Users\johndoe\Videos\capture.webm";
         let sanitized_win = SystemDiagnostics::sanitize_path(win_path);
-        assert_eq!(
-            sanitized_win,
-            r"C:\Users\[REDACTED]\Videos\capture.webm"
-        );
+        assert_eq!(sanitized_win, r"C:\Users\[REDACTED]\Videos\capture.webm");
 
         let linux_path = "/home/developer/recordings/test.webm";
         let sanitized_linux = SystemDiagnostics::sanitize_path(linux_path);
-        assert_eq!(
-            sanitized_linux,
-            "/home/[REDACTED]/recordings/test.webm"
-        );
+        assert_eq!(sanitized_linux, "/home/[REDACTED]/recordings/test.webm");
 
         let clean_path = "D:\\recordings\\test.webm";
         assert_eq!(SystemDiagnostics::sanitize_path(clean_path), clean_path);
@@ -202,15 +193,13 @@ mod tests {
             true,
             Some("1.28.8".to_string()),
             vec!["videotestsrc".to_string(), "vp8enc".to_string()],
-            vec![
-                InputDiagnosticInfo {
-                    id: 1,
-                    name: "Camera 1".to_string(),
-                    kind_summary: "Camera".to_string(),
-                    is_active: true,
-                    is_online: true,
-                },
-            ],
+            vec![InputDiagnosticInfo {
+                id: 1,
+                name: "Camera 1".to_string(),
+                kind_summary: "Camera".to_string(),
+                is_active: true,
+                is_online: true,
+            }],
             Some(OutputMetrics {
                 status: crate::project_store::OutputStatus::Live {
                     destination: "test.webm".to_string(),

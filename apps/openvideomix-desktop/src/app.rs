@@ -10,6 +10,8 @@ use chrono::Local;
 use eframe::egui::{
     self, Color32, Key, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, TextureHandle, Vec2,
 };
+#[cfg(feature = "gstreamer-recording")]
+use gstreamer as gst;
 use openvideomix_core::commands::{CommandDispatcher, ProductionCommand};
 #[cfg(feature = "midi-input")]
 use openvideomix_core::midi::{
@@ -18,8 +20,6 @@ use openvideomix_core::midi::{
 use openvideomix_core::{InputId, InputKind, MixerState, VideoInput, DEMO_CAMERA_PATH};
 #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
 use openvideomix_desktop::desktop_production::{DesktopProduction, RecordingState};
-#[cfg(feature = "gstreamer-recording")]
-use gstreamer as gst;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -205,6 +205,65 @@ impl OpenVideoMixApp {
             Err(error) => app.status_notification = Some(format!("API local desactivada: {error}")),
         }
         app
+    }
+
+    #[cfg(test)]
+    pub fn new_test() -> Self {
+        Self {
+            mixer: MixerState::default(),
+            dispatcher: CommandDispatcher::default(),
+            gui_time: 0.0,
+            gui_commands: GuiCommandGate::default(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            production: None,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            program_texture: None,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            program_frame_index: None,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            recording_intent_seen: 0,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            show_recording_setup: false,
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            recording_path: String::new(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            live_audio_factory: "audiotestsrc".into(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            live_audio_device: String::new(),
+            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
+            live_audio_selected: false,
+            #[cfg(feature = "local-control-api")]
+            remote: None,
+            status_notification: None,
+            show_settings: false,
+            show_diagnostics: false,
+            settings_tab: 0,
+            show_safe_areas: false,
+            input_search_filter: String::new(),
+            input_category_filter: 0,
+            audio_mixer_collapsed: false,
+            transition_duration_ms: 1000,
+            last_frame_time: Instant::now(),
+            animated_tick: 0.0,
+            connected_v4l2_devices: Vec::new(),
+            loaded_textures: HashMap::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            capture_sessions: HashMap::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            discovered_cameras: Vec::new(),
+            #[cfg(feature = "gstreamer-capture")]
+            camera_discovery_rx: None,
+            #[cfg(feature = "midi-input")]
+            midi_ports: Vec::new(),
+            #[cfg(feature = "midi-input")]
+            midi_port_selected: 0,
+            #[cfg(feature = "midi-input")]
+            midi_session: None,
+            #[cfg(feature = "midi-input")]
+            midi_mapper: MidiMapper::default(),
+            #[cfg(feature = "midi-input")]
+            midi_learn: None,
+        }
     }
 
     /// One validated command entry point for the GUI and external surfaces.
@@ -2458,56 +2517,7 @@ mod gui_command_tests {
 
     #[test]
     fn test_generate_diagnostics_sanitized() {
-        let app = OpenVideoMixApp {
-            mixer: MixerState::default(),
-            dispatcher: CommandDispatcher::default(),
-            gui_time: 0.0,
-            gui_commands: GuiCommandGate::default(),
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            production: None,
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            program_texture: None,
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            program_frame_index: None,
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            recording_intent_seen: 0,
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            show_recording_setup: false,
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            recording_path: String::new(),
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            live_audio_factory: String::new(),
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            live_audio_device: String::new(),
-            #[cfg(all(feature = "gstreamer-capture", feature = "gstreamer-recording"))]
-            live_audio_selected: false,
-            #[cfg(feature = "local-control-api")]
-            remote: None,
-            status_notification: None,
-            show_settings: false,
-            show_diagnostics: false,
-            settings_tab: 0,
-            show_safe_areas: false,
-            input_search_filter: String::new(),
-            input_category_filter: 0,
-            audio_mixer_collapsed: false,
-            transition_duration_ms: 1000,
-            last_frame_time: Instant::now(),
-            animated_tick: 0.0,
-            connected_v4l2_devices: Vec::new(),
-            loaded_textures: HashMap::new(),
-            #[cfg(feature = "gstreamer-capture")]
-            capture_sessions: HashMap::new(),
-            #[cfg(feature = "gstreamer-capture")]
-            discovered_cameras: Vec::new(),
-            #[cfg(feature = "midi-input")]
-            midi_service: None,
-            #[cfg(feature = "midi-input")]
-            midi_mapper: MidiMapper::default(),
-            #[cfg(feature = "midi-input")]
-            midi_learn: None,
-        };
-
+        let app = OpenVideoMixApp::new_test();
         let diag = app.generate_diagnostics();
         assert_eq!(diag.product, "OPENVIDEOMIX");
         assert!(diag.sanitized);
