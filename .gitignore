@@ -12,3 +12,5 @@ Cargo.lock
 /local-results/
 /local-tools/
 /local-release/
+/tools/
+PCGRANDE_INPUT.txt
