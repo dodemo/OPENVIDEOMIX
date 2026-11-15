@@ -25,8 +25,8 @@ pub use midi::{
     MidiTarget, TakeoverMode,
 };
 pub use project_store::{
-    CURRENT_PROJECT_VERSION, OutputMetrics, OutputStatus, ProjectFile, ProjectInputEntry,
-    ProjectLoadReport, ProjectStoreError,
+    OutputMetrics, OutputStatus, ProjectFile, ProjectInputEntry, ProjectLoadReport,
+    ProjectStoreError, CURRENT_PROJECT_VERSION,
 };
 pub use reference_compositor::{
     CompositeError, RgbaFrame, StingerSequence, Transition, TransitionTransaction,

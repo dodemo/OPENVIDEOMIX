@@ -14,8 +14,8 @@ use thiserror::Error;
 
 use crate::midi::MidiProfile;
 use crate::{
-    AudioBus, DEMO_CAMERA_PATH, InputId, InputKind, MixerState, ProjectSettings, TransitionType,
-    VideoInput,
+    AudioBus, InputId, InputKind, MixerState, ProjectSettings, TransitionType, VideoInput,
+    DEMO_CAMERA_PATH,
 };
 
 pub const CURRENT_PROJECT_VERSION: u32 = 1;
@@ -215,7 +215,9 @@ impl ProjectFile {
         let project: Self = serde_json::from_str(&data)?;
 
         if project.format_version > CURRENT_PROJECT_VERSION {
-            return Err(ProjectStoreError::UnsupportedVersion(project.format_version));
+            return Err(ProjectStoreError::UnsupportedVersion(
+                project.format_version,
+            ));
         }
 
         Ok(project)
@@ -226,13 +228,19 @@ impl ProjectFile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OutputStatus {
     Idle,
-    Starting { destination: String },
+    Starting {
+        destination: String,
+    },
     Live {
         destination: String,
         started_at: DateTime<Utc>,
     },
-    Stopping { destination: String },
-    Error { message: String },
+    Stopping {
+        destination: String,
+    },
+    Error {
+        message: String,
+    },
 }
 
 /// Continuous operational metrics for an output channel.
@@ -279,7 +287,10 @@ impl OutputMetrics {
     }
 
     pub fn stop(&mut self) {
-        if let OutputStatus::Live { ref destination, .. } = self.status {
+        if let OutputStatus::Live {
+            ref destination, ..
+        } = self.status
+        {
             self.status = OutputStatus::Stopping {
                 destination: destination.clone(),
             };
@@ -309,7 +320,10 @@ mod tests {
 
     #[test]
     fn project_roundtrip_serialization_and_atomic_save() {
-        let temp_dir = std::env::temp_dir().join(format!("ovmix_test_{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "ovmix_test_{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
         let project_path = temp_dir.join("test_session.ovmix");
 
         let state = MixerState::default();
@@ -393,7 +407,10 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_future_version() {
-        let temp_dir = std::env::temp_dir().join(format!("ovmix_ver_test_{}", Utc::now().timestamp_nanos_opt().unwrap_or(0)));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "ovmix_ver_test_{}",
+            Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
         let project_path = temp_dir.join("future.ovmix");
         let _ = fs::create_dir_all(&temp_dir);
 
@@ -405,7 +422,10 @@ mod tests {
         fs::write(&project_path, json).unwrap();
 
         let result = ProjectFile::load(&project_path);
-        assert!(matches!(result, Err(ProjectStoreError::UnsupportedVersion(999))));
+        assert!(matches!(
+            result,
+            Err(ProjectStoreError::UnsupportedVersion(999))
+        ));
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
