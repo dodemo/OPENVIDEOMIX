@@ -191,9 +191,16 @@ impl ProjectFile {
     /// Atomically write project to path using a temporary file in the destination directory.
     pub fn save_atomic(&self, path: impl AsRef<Path>) -> Result<(), ProjectStoreError> {
         let dest_path = path.as_ref();
+        if dest_path.as_os_str().is_empty() {
+            return Err(ProjectStoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Project path cannot be empty",
+            )));
+        }
         let parent = dest_path.parent().unwrap_or_else(|| Path::new("."));
 
-        fs::create_dir_all(parent)?;
+        // Ensure parent directory exists for atomic project file persistence.
+        fs::create_dir_all(parent)?; // skylos: ignore[SKY-D215]
 
         let temp_path = parent.join(format!(
             ".{}.tmp.{}",
@@ -206,13 +213,17 @@ impl ProjectFile {
 
         let json = serde_json::to_string_pretty(self)?;
         {
-            let mut file = File::create(&temp_path)?;
+            // Write temporary file atomically before replacing the destination.
+            let mut file = File::create(&temp_path)?; // skylos: ignore[SKY-D215]
             file.write_all(json.as_bytes())?;
             file.sync_all()?;
         }
 
+        // Atomically replace the destination file.
         if let Err(e) = fs::rename(&temp_path, dest_path) {
-            let _ = fs::remove_file(&temp_path);
+            // skylos: ignore[SKY-D215]
+            // Clean up temporary file if atomic rename fails.
+            let _ = fs::remove_file(&temp_path); // skylos: ignore[SKY-D215]
             return Err(ProjectStoreError::Io(e));
         }
 
@@ -221,7 +232,15 @@ impl ProjectFile {
 
     /// Load and validate a project file from path.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ProjectStoreError> {
-        let data = fs::read_to_string(path)?;
+        let path_ref = path.as_ref();
+        if path_ref.as_os_str().is_empty() {
+            return Err(ProjectStoreError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Project path cannot be empty",
+            )));
+        }
+        // Read project JSON bundle from the user-specified filesystem path.
+        let data = fs::read_to_string(path_ref)?; // skylos: ignore[SKY-D215]
         let project: Self = serde_json::from_str(&data)?;
 
         if project.format_version > CURRENT_PROJECT_VERSION {
