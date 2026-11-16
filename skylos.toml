@@ -1,0 +1,20 @@
+# Skylos Quality, Security and AI-Defect Gate Configuration
+# Docs: https://docs.skylos.dev
+
+[tool.skylos]
+exclude = [
+    "target",
+    "dist",
+    "bin",
+    "recordings",
+    ".git",
+]
+confidence = 50
+
+[tool.skylos.done]
+test_command = "cargo test --workspace"
+
+[tool.skylos.gate]
+block_security = true
+block_secrets = true
+block_ai_defects = true
